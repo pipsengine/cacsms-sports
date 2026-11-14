@@ -1,4 +1,4 @@
-// Starts the FastAPI API (port 8000) and the Vite web app (port 5173) together.
+// Starts the FastAPI API (port 8000), the background task scheduler and the Vite web app (port 5173) together.
 // Usage from the repository root: npm run dev   (Ctrl+C stops both)
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -69,9 +69,16 @@ process.on('SIGTERM', () => shutdown(0));
 
 if (!process.env.DATABASE_URL) console.warn('DATABASE_URL not set (add it to .env); the API will use its built-in default.');
 
-start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--port', '8000'], {
+const pyEnv = { ...process.env, PYTHONPATH: root, PYTHONUNBUFFERED: '1' };
+// --timeout-graceful-shutdown: open live-update (SSE) streams would otherwise block reloads.
+start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
   cwd: apiDir,
-  env: { ...process.env, PYTHONPATH: root },
+  env: pyEnv,
+});
+// Autonomous background tasks (Celery beat schedule, run in-process; no Redis needed locally).
+start('worker', '33', venvPython, ['-m', 'app.modules.acquisition.dev_scheduler'], {
+  cwd: apiDir,
+  env: pyEnv,
 });
 start('web', '35', isWin ? 'cmd.exe' : 'npm', isWin ? ['/c', 'npm', 'run', 'dev'] : ['run', 'dev'], {
   cwd: webDir,

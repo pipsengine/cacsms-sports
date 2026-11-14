@@ -8,3 +8,9 @@
 .fd-stage-arrow{font-size:13px}
 @media(max-width:1440px){.fd-stage-track{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;overflow:visible}.fd-stage-arrow{display:none}}
 @media(max-width:767px){.fd-stage-track{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Live stream indicator */
+.fd-led.good{background:#12a666}
+.fd-led.pulse{box-shadow:0 0 0 0 #12a66688;animation:fd-pulse 2s infinite}
+@keyframes fd-pulse{0%{box-shadow:0 0 0 0 #12a66680}70%{box-shadow:0 0 0 7px #12a66600}100%{box-shadow:0 0 0 0 #12a66600}}
+@media (prefers-reduced-motion:reduce){.fd-led.pulse{animation:none}}

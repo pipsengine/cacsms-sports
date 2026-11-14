@@ -17,6 +17,7 @@ log = logging.getLogger('dev_scheduler')
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
+    logging.getLogger('celery.app.trace').setLevel(logging.WARNING)  # avoid duplicate success lines
     tasks.celery_app.conf.task_always_eager = True
     tasks.celery_app.conf.task_eager_propagates = True
 
