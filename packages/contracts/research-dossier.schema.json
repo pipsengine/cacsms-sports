@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResearchDossier",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "research_status",
+    "sections",
+    "evidence_ids",
+    "research_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "fixture_id": {
+      "type": "string"
+    },
+    "research_status": {
+      "enum": [
+        "PENDING",
+        "PARTIAL",
+        "VERIFIED",
+        "BLOCKED"
+      ]
+    },
+    "sections": {
+      "type": "object"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "research_version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

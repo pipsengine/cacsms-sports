@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QualificationDecision",
+  "type": "object",
+  "required": [
+    "prediction_id",
+    "odds_snapshot_id",
+    "gate_results",
+    "decision"
+  ],
+  "properties": {
+    "prediction_id": {
+      "type": "string"
+    },
+    "odds_snapshot_id": {
+      "type": "string"
+    },
+    "gate_results": {
+      "type": "object"
+    },
+    "decision": {
+      "enum": [
+        "QUALIFIED",
+        "REJECTED"
+      ]
+    }
+  }
+}

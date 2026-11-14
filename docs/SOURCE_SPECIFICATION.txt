@@ -1,0 +1,923 @@
+proceed
+CACSMS SPORTS — Technical Implementation Specification
+We will proceed with the detailed implementation specification for the rebuilt platform, covering the exact folder structure, navigation routes, responsive application shell, engine contracts, PostgreSQL database architecture, APIs and autonomous operating workflows.
+
+This specification establishes the development blueprint. It does not assume that any of the new components have already been implemented.
+
+1. Architectural decisions
+Area
+
+Approved design baseline
+
+Project
+
+Cacsms Sport AI 2.0
+
+Development approach
+
+New modular monorepo, with selective reuse of verified existing components
+
+Frontend
+
+React, TypeScript, Vite, Tailwind CSS, shadcn/ui
+
+Backend
+
+FastAPI, Python, SQLAlchemy, Alembic
+
+Database
+
+PostgreSQL
+
+Background processing
+
+Celery, Redis
+
+Browser automation
+
+Playwright, Chromium, authorized sources
+
+Vision intelligence
+
+Vision-assisted extraction with evidence verification
+
+ML architecture
+
+Independent sport/market models, calibration and model registry
+
+Live communication
+
+Server-Sent Events initially; WebSockets where bidirectional control is necessary
+
+Initial execution
+
+PAPER only; no real-money wager submission
+
+Deployment
+
+Dockerized frontend, API, workers and supporting services
+
+Layout
+
+Mobile, tablet, 13-inch laptop and large desktop
+
+Non-negotiable design principles
+Every engine has one clearly defined responsibility.
+
+All engines communicate through typed contracts and versioned events.
+
+PostgreSQL is the authoritative operational database.
+
+Research evidence must exist before a prediction can be qualified.
+
+Qualification cannot be bypassed by tickets, programmes or booking-code services.
+
+Models must pass independent validation before activation.
+
+The interface must show actual operational states, not simulated production metrics.
+
+Every external action must be traceable, idempotent where possible and governed by explicit policies.
+
+2. Application route and sidebar contract
+The following routes should be fixed before page development begins.
+
+Navigation
+
+Page
+
+Route
+
+Overview
+
+Dashboard
+
+/sports/dashboard
+
+Overview
+
+Command Centre
+
+/sports/command-centre
+
+Overview
+
+Live Operations
+
+/sports/live-operations
+
+Intelligence
+
+Fixtures & Competitions
+
+/sports/fixtures
+
+Intelligence
+
+Deep Match Research
+
+/sports/research
+
+Intelligence
+
+Match Analysis
+
+/sports/match-analysis
+
+Intelligence
+
+AI Predictions
+
+/sports/predictions
+
+Intelligence
+
+League Tables & Statistics
+
+/sports/statistics
+
+Markets
+
+Market Intelligence
+
+/sports/markets
+
+Markets
+
+AI Qualification
+
+/sports/qualification
+
+Markets
+
+Qualified Opportunities
+
+/sports/opportunities
+
+Programmes
+
+Accumulator Engine
+
+/sports/programmes/accumulator
+
+Programmes
+
+Automatic Singles
+
+/sports/programmes/singles
+
+Programmes
+
+Jackpot Engine
+
+/sports/programmes/jackpot
+
+Programmes
+
+Weekly Draw Centre
+
+/sports/programmes/draws
+
+Programmes
+
+Daily Rollover Centre
+
+/sports/programmes/rollover
+
+Booking
+
+Ticket Builder
+
+/sports/tickets
+
+Booking
+
+Betslip Preparation
+
+/sports/betslip
+
+Booking
+
+Booking Codes
+
+/sports/booking-codes
+
+Results
+
+Match Results
+
+/sports/results
+
+Results
+
+Performance Analytics
+
+/sports/performance
+
+Results
+
+Model Intelligence
+
+/sports/models
+
+Operations
+
+Source Intelligence
+
+/sports/sources
+
+Operations
+
+Browser & Vision Operator
+
+/sports/browser
+
+Operations
+
+Engine Orchestrator
+
+/sports/orchestrator
+
+Operations
+
+Diagnostics & Incidents
+
+/sports/diagnostics
+
+Administration
+
+Configuration
+
+/sports/settings
+
+Administration
+
+Security & Policies
+
+/sports/security
+
+Administration
+
+Audit Trail
+
+/sports/audit
+
+Routing rules: Keep routes stable and define redirects for legacy URLs, including /sports/sportybet-browser. Do not duplicate the same business functionality on multiple pages.
+
+Each betting programme can have a Dashboard and Engine view internally, using route children such as /sports/programmes/singles/engine, without creating unnecessary top-level sidebar items.
+
+3. Detailed folder ownership
+The monorepo structure defined earlier should be implemented with the following ownership rules.
+
+
+cacsms-sport-ai/
+├── apps/
+│   ├── web/
+│   │   └── src/
+│   │       ├── app/
+│   │       │   ├── router/
+│   │       │   ├── layouts/
+│   │       │   ├── providers/
+│   │       │   └── guards/
+│   │       ├── features/
+│   │       │   ├── dashboard/
+│   │       │   ├── command-centre/
+│   │       │   ├── live-operations/
+│   │       │   ├── fixtures/
+│   │       │   ├── research/
+│   │       │   ├── match-analysis/
+│   │       │   ├── predictions/
+│   │       │   ├── statistics/
+│   │       │   ├── markets/
+│   │       │   ├── qualification/
+│   │       │   ├── opportunities/
+│   │       │   ├── programmes/
+│   │       │   │   ├── accumulator/
+│   │       │   │   ├── singles/
+│   │       │   │   ├── jackpot/
+│   │       │   │   ├── draws/
+│   │       │   │   └── rollover/
+│   │       │   ├── tickets/
+│   │       │   ├── betslip/
+│   │       │   ├── booking-codes/
+│   │       │   ├── results/
+│   │       │   ├── performance/
+│   │       │   ├── models/
+│   │       │   ├── sources/
+│   │       │   ├── browser/
+│   │       │   ├── orchestrator/
+│   │       │   ├── diagnostics/
+│   │       │   └── administration/
+│   │       ├── shared/
+│   │       │   ├── components/
+│   │       │   ├── hooks/
+│   │       │   ├── api/
+│   │       │   └── types/
+│   │       └── styles/
+│   │
+│   └── api/
+│       ├── app/
+│       │   ├── api/v1/
+│       │   ├── core/
+│       │   ├── db/
+│       │   ├── modules/
+│       │   └── main.py
+│       └── tests/
+│
+├── workers/
+│   ├── discovery/
+│   ├── acquisition/
+│   ├── research/
+│   ├── prediction/
+│   ├── market-monitoring/
+│   ├── ticket-processing/
+│   ├── booking-code/
+│   ├── settlement/
+│   └── maintenance/
+│
+├── engines/
+│   ├── control/
+│   ├── research/
+│   ├── analysis/
+│   ├── markets/
+│   ├── programmes/
+│   └── learning/
+│
+├── connectors/
+├── ml/
+├── packages/
+│   ├── contracts/
+│   ├── domain/
+│   └── events/
+├── infrastructure/
+├── migrations/
+├── tests/
+├── docs/
+└── scripts/
+The engines directory contains reusable business logic. The workers directory contains asynchronous execution adapters. The apps/api directory exposes validated operations to the frontend.
+
+For example, the Research Engine should not depend on Celery directly. Its worker calls the engine and publishes the resulting event. This makes the research logic independently testable.
+
+4. Responsive application shell specification
+Breakpoints refer to CSS viewport width, not the physical diagonal size of the device. A 13-inch laptop may have a different effective viewport depending on browser zoom and display scaling.
+
+Screen
+
+Sidebar
+
+Content grid
+
+Tables and forms
+
+Mobile, below 768px
+
+Drawer + 4–5 bottom shortcuts
+
+1–2 columns
+
+Card-based rows; full-screen forms
+
+Tablet, 768–1023px
+
+64px icon rail
+
+2 columns
+
+Scrollable tables; modal forms
+
+Compact desktop, 1024–1439px
+
+220px collapsible sidebar
+
+3–4 columns
+
+Compact tables; medium modals
+
+Large desktop, 1440px+
+
+240–260px sidebar
+
+4–6 columns
+
+Detailed tables; contextual panels
+
+Shared application shell
+
+SportsAppShell
+├── GlobalHeader
+│   ├── NavigationToggle
+│   ├── Breadcrumbs
+│   ├── GlobalFixtureSearch
+│   ├── ExecutionModeIndicator
+│   ├── SourceFreshnessIndicator
+│   ├── IncidentNotifications
+│   └── UserMenu
+├── ResponsiveSidebar
+│   ├── Overview
+│   ├── Intelligence
+│   ├── Markets
+│   ├── Programmes
+│   ├── Booking
+│   ├── Results
+│   ├── Operations
+│   └── Administration
+├── PageWorkspace
+│   ├── PageHeading
+│   ├── ContextualActions
+│   ├── KPIGrid
+│   ├── PrimaryContent
+│   ├── DetailDrawer
+│   └── ResponsiveModalHost
+└── MobileQuickNavigation
+Every page must implement loading, empty, stale, error, permission-denied and disconnected states.
+
+The system must not render a green Operational indicator merely because an API responds. Operational readiness requires successful completion of the relevant workflow and freshness checks.
+
+5. Engine input/output contracts
+The engines need strict data contracts before implementation.
+
+Engine
+
+Input
+
+Output
+
+Fixture Discovery
+
+Sport, competition, coverage window
+
+Canonical fixture records
+
+Source Acquisition
+
+Fixture IDs, source policies
+
+Timestamped raw observations
+
+Deep Research
+
+Fixture, source evidence
+
+Research dossier
+
+Data Quality
+
+Dossier, historical observations
+
+Verified feature eligibility
+
+Statistical Analysis
+
+Validated research
+
+Contextual feature set
+
+Prediction
+
+Feature set, approved model
+
+Versioned probability forecast
+
+Calibration
+
+Forecast, model calibration
+
+Calibrated probability and uncertainty
+
+Market Intelligence
+
+Fixture, bookmaker event
+
+Verified odds snapshot
+
+Qualification
+
+Forecast, odds, policies
+
+Qualified or rejected decision
+
+Strategy Allocation
+
+Qualified opportunities
+
+Programme assignments
+
+Ticket Optimizer
+
+Programme assignments
+
+Proposed ticket with leg risk
+
+Betslip Preparation
+
+Ticket, bookmaker mapping
+
+Verified betslip preparation
+
+Booking Code
+
+Prepared betslip
+
+Verified code or failure reason
+
+Settlement
+
+Forecast, official result
+
+Settled outcome
+
+Learning
+
+Settlements, predictions
+
+Model evaluation and challenger results
+
+Example: research dossier contract
+
+{
+  "schema_version": "1.0",
+  "fixture_id": "uuid",
+  "sport_id": "football",
+  "research_status": "PARTIAL",
+  "observed_at": "2026-11-14T06:00:00Z",
+  "sections": {
+    "standings": {"status": "VERIFIED"},
+    "recent_form": {"status": "VERIFIED"},
+    "head_to_head": {"status": "VERIFIED"},
+    "team_news": {"status": "MISSING"},
+    "lineups": {"status": "PENDING"}
+  },
+  "evidence_ids": ["uuid"],
+  "conflicts": [],
+  "eligible_feature_sets": [],
+  "research_version": 1
+}
+
+This is an illustrative API contract, not an actual research result.
+
+The research status should not be used as a blanket pass/fail for every market. The Data Quality Engine determines whether the specific features required by a particular market model are available and reliable.
+
+Example: qualification contract
+
+{
+  "schema_version": "1.0",
+  "opportunity_id": "uuid",
+  "fixture_id": "uuid",
+  "market_id": "uuid",
+  "outcome_id": "uuid",
+  "prediction_id": "uuid",
+  "odds_snapshot_id": "uuid",
+  "research_version": 1,
+  "gate_results": {
+    "research": "PASS",
+    "model": "PASS",
+    "calibration": "PASS",
+    "odds_freshness": "PASS",
+    "market_mapping": "PASS",
+    "value": "FAIL"
+  },
+  "decision": "REJECTED",
+  "reason_codes": ["INSUFFICIENT_VALUE"]
+}
+
+The qualification decision must be derived by the backend from actual gate results, not accepted as an arbitrary status supplied by a client.
+
+6. PostgreSQL entity relationships
+The core data relationships should follow this structure:
+
+Sport / Competition / Season
+Fixture
+Source Observations
+Research Dossier
+Validated Features
+Model Prediction
+Model Version
+Bookmaker Event
+Odds Snapshot
+Qualification Decision
+Qualified Opportunity
+Programme Allocation
+Ticket / Ticket Legs
+Betslip
+Verified Booking Code
+Official Result
+Settlement
+Prospective Model Evaluation
+Required database constraints
+fixtures: unique canonical fixture identity, with provider mappings stored separately.
+
+source_observations: unique source observation identity or content hash, with immutable collection timestamps.
+
+research_dossiers: versioned by fixture and research revision.
+
+predictions: immutable forecast version, model version, feature snapshot and prediction timestamp.
+
+odds_snapshots: bookmaker, event, market, outcome, price and observed timestamp.
+
+qualification_decisions: immutable gate evaluation referencing exact forecast and price versions.
+
+ticket_legs: foreign keys to qualified opportunities and their qualification versions.
+
+booking_codes: uniqueness scoped to the bookmaker and verified external code.
+
+settlements: idempotent settlement key, official result reference and correction history.
+
+audit_events: append-only audit records with actor, action, correlation ID and timestamp.
+
+Financial history from the existing system should be preserved separately from model-performance records. Historical corrections must not erase original transactions or settlement evidence.
+
+7. API specification
+Use /api/v1/sports as the API prefix.
+
+Domain
+
+Endpoints
+
+Overview
+
+GET /dashboard/summary
+
+Missions
+
+GET /missions, GET /missions/{id}
+
+Operations
+
+GET /operations/live, GET /operations/events
+
+Fixtures
+
+GET /fixtures, GET /fixtures/{id}
+
+Research
+
+GET /fixtures/{id}/research, GET /research/evidence/{id}
+
+Statistics
+
+GET /fixtures/{id}/statistics
+
+Predictions
+
+GET /fixtures/{id}/predictions, GET /predictions/{id}
+
+Markets
+
+GET /fixtures/{id}/markets, GET /markets/odds
+
+Qualification
+
+GET /qualification/decisions, GET /opportunities
+
+Programmes
+
+GET /programmes, GET /programmes/{key}/runs
+
+Tickets
+
+GET /tickets, GET /tickets/{id}
+
+Betslips
+
+GET /betslips, GET /betslips/{id}
+
+Booking codes
+
+GET /booking-codes, GET /booking-codes/{id}
+
+Results
+
+GET /results, GET /settlements
+
+Models
+
+GET /models, GET /models/{id}/evaluations
+
+Sources
+
+GET /sources, GET /sources/health
+
+Browser
+
+GET /browser/sessions, GET /browser/sessions/{id}
+
+Diagnostics
+
+GET /diagnostics, GET /incidents
+
+Audit
+
+GET /audit/events
+
+Administrative mutation endpoints should be separate, role-restricted, authenticated and audited. No generic API endpoint should accept an arbitrary qualified=true flag or directly convert a proposed ticket into a paid wager.
+
+Real-time event channels
+Use server events for:
+
+mission.updated, fixture.discovered, research.completed, prediction.created, qualification.decided, ticket.prepared, booking_code.verified, settlement.completed, incident.opened, and worker.health_changed.
+
+Every event should contain a schema version, event ID, correlation ID, timestamp and source engine. Consumers must tolerate duplicate delivery.
+
+8. Operational orchestration and failure handling
+Scheduler / Mission Controller
+Create Durable Job
+Acquire Worker Lease
+Execute Engine
+Execution successful?
+Validate Output
+Evidence and gates valid?
+Commit State and PublishEvent
+Block / Reject with Reason
+Transient failure?
+Bounded Retry with Backoff
+Open Incident
+Schedule Dependent Stage
+Yes
+Yes
+No
+No
+Yes
+No
+The mission controller should support:
+
+Distributed worker leases with expiry and heartbeat.
+
+Unique idempotency keys per fixture, market, model and processing version.
+
+Retry limits and exponential backoff.
+
+Dead-letter queues for jobs requiring investigation.
+
+Independent source and model circuit breakers.
+
+Explicit timeout, cancellation and recovery states.
+
+Versioned workflow definitions and audit histories.
+
+An external booking-code request requires an additional reconciliation step before retrying, to prevent duplicate operations when a browser action succeeds but its acknowledgment is lost.
+
+9. Main operational acceptance criteria
+Capability
+
+Required acceptance test
+
+Research
+
+A fixture dossier contains genuine, source-linked observations and missing-data flags
+
+Source governance
+
+Restricted sources cannot be automatically accessed without authorization
+
+Fixture identity
+
+Same fixture from multiple providers resolves to one canonical match
+
+Temporal integrity
+
+Future information cannot enter historical feature snapshots
+
+Prediction
+
+Each forecast references approved model and feature versions
+
+Calibration
+
+Probabilities are evaluated on leakage-free, out-of-sample data
+
+Qualification
+
+No ticket can bypass mandatory gates
+
+Market mapping
+
+Internal selection matches exact bookmaker event and market
+
+Booking codes
+
+Codes are verified against actual displayed selections
+
+Settlement
+
+Official results reconcile without double counting
+
+Model learning
+
+New models remain challengers until validation passes
+
+Autonomy
+
+Jobs execute and recover without routine manual initiation
+
+Safety
+
+Paid-wager paths remain disabled, including after restarts and database failures
+
+Responsive UI
+
+Every page works at 360px, 768px, 1280px and 1920px test viewports
+
+Observability
+
+Every mission can be traced from source acquisition to final outcome
+
+A passing test suite is necessary but not sufficient: runtime evidence from a complete paper-mode workflow is also required.
+
+10. Development work packages
+The implementation should be organized into the following deliverable packages.
+
+WP-01
+
+Foundation & Design System
+
+Monorepo, responsive shell, sidebar, authentication, route guards and reusable UI
+
+WP-02
+
+PostgreSQL & Domain Contracts
+
+Schemas, migrations, repositories, data validation and audit infrastructure
+
+WP-03
+
+Autonomous Mission Control
+
+Schedulers, workers, queues, engine orchestration and recovery
+
+WP-04
+
+Sports Discovery & Deep Research
+
+Authorized sources, browser vision, fixture identity, statistics and research dossiers
+
+WP-05
+
+Prediction & Model Intelligence
+
+Features, sport-specific models, calibration, validation and governance
+
+WP-06
+
+Markets & Qualification
+
+Odds verification, market mapping, expected value and mandatory gates
+
+WP-07
+
+Strategy Programmes
+
+Accumulator, Singles, Jackpot, Draw and Rollover engines
+
+WP-08
+
+Tickets & Booking Codes
+
+Ticket optimization, betslip preparation, code retrieval and verification
+
+WP-09
+
+Results & Continuous Learning
+
+Official results, settlements, prospective evaluation and model monitoring
+
+WP-10
+
+Diagnostics, Migration & Release
+
+Monitoring, data reconciliation, end-to-end tests, deployment and rollback
+
+Implementation controls
+Each work package must deliver complete source code, migrations where applicable, automated tests, API documentation, responsive interfaces and verified operational evidence.
+
+WP-01 and WP-02 are the foundation. The later work packages should be integrated incrementally, rather than built as disconnected applications and joined at the end.
+
+11. Initial development instruction
+CACSMS SPORTS — FOUNDATION IMPLEMENTATION
+Begin the controlled rebuild of Cacsms Sport AI 2.0 according to the approved technical architecture.
+
+Implement Work Packages WP-01 and WP-02 first.
+
+Create the modular monorepo with React, TypeScript, Vite, Tailwind CSS, shadcn/ui, FastAPI, SQLAlchemy, Alembic and PostgreSQL.
+
+Implement the complete eight-group sidebar and all approved application routes. Build the responsive application shell for mobile, tablet, 13-inch laptops and large desktop screens.
+
+Create reusable layouts, navigation, KPI cards, data tables, charts, search, filters, modals, drawers, loading states, empty states, error handling, live-status components and notification interfaces.
+
+Establish PostgreSQL domain schemas for sports, fixtures, sources, research, features, models, predictions, markets, qualification, strategies, tickets, results, operations and audit.
+
+Implement authentication, role-based permissions, versioned API contracts, database migrations, typed frontend API clients, structured logging, health checks and automated tests.
+
+Create engine interfaces and event contracts without prematurely implementing prediction or booking functionality.
+
+Preserve the existing platform and database as an isolated reference. Do not migrate unverified or corrupted records.
+
+Enforce PAPER-only operation and ensure no paid-wager submission pathway is enabled.
+
+Deliver a runnable, Dockerized foundation with working PostgreSQL connectivity, responsive navigation, validated API endpoints, migration scripts, tests and setup documentation.
+
+Do not use mock data to represent live operational results. Show accurate empty, pending or unavailable states until real backend capabilities are implemented.
+
+Do not proceed to subsequent work packages until foundation acceptance criteria pass.
+
+This establishes the technical specification and initial build instructions for Cacsms Sport AI 2.0. No source code or database migration has been executed yet.
+
+The next implementation milestone is a working WP-01/WP-02 foundation—not another collection of disconnected page mockups.
