@@ -464,6 +464,8 @@ app.include_router(governance_router)
 
 from app.modules.pipeline.routes import router as pipeline_router
 app.include_router(pipeline_router)
+from app.modules.live.routes import router as live_router
+app.include_router(live_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

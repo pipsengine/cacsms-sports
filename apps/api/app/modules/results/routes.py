@@ -7,7 +7,6 @@ from sqlalchemy.exc import IntegrityError
 from app.db.base import SessionLocal
 from app.db import models as m
 from app.modules.results.service import validate_result_payload,settle_outcome,performance_summary,ResultValidationError
-from app.core.config import settings
 
 router=APIRouter(prefix='/api/v1/sports',tags=['Results & Learning'])
 
