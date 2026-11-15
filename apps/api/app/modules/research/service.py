@@ -2,7 +2,10 @@
 from sqlalchemy import select,func
 from app.db import models as m
 SECTIONS=('standings','recent_form','head_to_head','team_news','lineups','injuries','match_statistics')
-VALID={'VERIFIED','MISSING','PENDING','CONFLICTED'}
+# UNAVAILABLE = explicitly marked unavailable (corroborated declaration or research deadline);
+# it completes a mandatory dimension without inventing data.
+VALID={'VERIFIED','UNAVAILABLE','MISSING','PENDING','CONFLICTED'}
+COMPLETE={'VERIFIED','UNAVAILABLE'}
 
 def build_dossier(session,fixture_id,sections,evidence_ids,*,at=None):
     fixture=session.get(m.Fixture,fixture_id)
@@ -21,7 +24,7 @@ def build_dossier(session,fixture_id,sections,evidence_ids,*,at=None):
         if not isinstance(refs,list) or any(ref not in evidence for ref in refs):raise ValueError('Section has unknown evidence references: '+key)
         if entry['status']=='VERIFIED' and not refs:raise ValueError('Verified section requires evidence: '+key)
         normalized[key]={'status':entry['status'],'evidence_ids':refs,'details':entry.get('details',{})}
-    status='VERIFIED' if all(s['status']=='VERIFIED' for s in normalized.values()) else 'PARTIAL'
+    status='VERIFIED' if all(s['status'] in COMPLETE for s in normalized.values()) and any(s['status']=='VERIFIED' for s in normalized.values()) else 'PARTIAL'
     version=(session.scalar(select(func.max(m.Research.version)).where(m.Research.fixture_id==fixture_id)) or 0)+1
     dossier=m.Research(fixture_id=fixture_id,version=version,status=status,sections=normalized,evidence_ids=evidence_ids)
     

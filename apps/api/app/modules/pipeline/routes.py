@@ -1,13 +1,14 @@
-"""Pipeline read endpoints and explicitly authenticated PAPER-only evaluation."""
-from datetime import datetime,timezone
-from time import monotonic
+"""Pipeline read endpoints and authenticated PAPER-only execution.
+
+Stage completion is only ever set by the server-side runner from persisted receipts; there is
+no endpoint that accepts client-supplied evidence.
+"""
 from fastapi import APIRouter,Header,HTTPException
 from pydantic import BaseModel,Field
 from sqlalchemy import select,text
-from sqlalchemy.exc import IntegrityError,SQLAlchemyError
 from app.db.base import SessionLocal
 from app.db import models as m
-from app.modules.pipeline.logic import STAGES,STATUS_COLORS,gate,utcnow
+from app.modules.pipeline.logic import STAGES,STATUS_COLORS,SETTLED,BUSINESS_OUTCOMES
 from app.core.config import EXECUTION_MODE
 import os
 from secrets import compare_digest
@@ -18,20 +19,43 @@ router=APIRouter(prefix='/api/v1/sports/pipeline',tags=['Pipeline'])
 class CreateRun(BaseModel):
  idempotency_key:str=Field(min_length=8,max_length=128)
  fixture_id:str|None=None
-class EvidenceUpdate(BaseModel):
- context:dict=Field(default_factory=dict)
-def stage_href(stage,rid):
+def stage_href(stage,rid,fixture_id=None):
  from urllib.parse import urlencode
  from app.modules.pipeline.runner import PAGES
- return '/sports/'+PAGES[stage.stage_key]+'?'+urlencode({'run_id':rid,'stage':stage.stage_key})
+ query={'run_id':rid,'stage':stage.stage_key}
+ if fixture_id:query['fixture_id']=fixture_id
+ return '/sports/'+PAGES[stage.stage_key]+'?'+urlencode(query)
 
-def serialize_stage(s):
- return {'id':s.id,'position':s.position,'stage_key':s.stage_key,'name':dict((k,n) for k,n,_ in STAGES)[s.stage_key],'status':s.status,'color':STATUS_COLORS.get(s.status,'gray'),'input':s.input_payload,'output':s.output_payload,'evidence_ids':s.evidence_ids,'error':s.error,'retry_count':s.retry_count,'started_at':s.started_at,'finished_at':s.finished_at,'duration_ms':s.duration_ms,'next_retry_at':s.next_retry_at,'href':stage_href(s,rid=s.run_id)}
+
+def contract(run,s):
+ """The standard versioned stage data contract (latest state)."""
+ return {'pipeline_run_id':s.run_id,'fixture_id':run.fixture_id if run else None,'stage':s.stage_key.upper(),'status':s.status,
+         'input_version':s.input_version or 0,'output_version':s.output_version or 0,'started_at':s.started_at,'completed_at':s.finished_at,
+         'evidence_ids':list(s.evidence_ids or []),'output_reference':s.output_reference,
+         'quality_score':float(s.quality_score) if s.quality_score is not None else None,
+         'failure_code':s.failure_code,'failure_reason':None if s.status=='VERIFIED' else s.error,
+         'next_stage':s.next_stage.upper() if s.next_stage else None}
+
+
+def serialize_stage(s,run=None):
+ return {'id':s.id,'position':s.position,'stage_key':s.stage_key,'name':dict((k,n) for k,n,_ in STAGES)[s.stage_key],'status':s.status,
+         'color':STATUS_COLORS.get(s.status,'gray'),'settled':s.status in SETTLED,'business_outcome':s.status in BUSINESS_OUTCOMES,
+         'input':s.input_payload,'output':s.output_payload,'evidence_ids':s.evidence_ids,'error':s.error,'retry_count':s.retry_count,
+         'started_at':s.started_at,'finished_at':s.finished_at,'duration_ms':s.duration_ms,'next_retry_at':s.next_retry_at,
+         'input_version':s.input_version or 0,'output_version':s.output_version or 0,'output_reference':s.output_reference,
+         'quality_score':float(s.quality_score) if s.quality_score is not None else None,'failure_code':s.failure_code,'next_stage':s.next_stage,
+         'contract':contract(run,s),'href':stage_href(s,s.run_id,run.fixture_id if run else None)}
+
+
 def serialize_run(db,r):
  stages=db.scalars(select(m.PipelineStage).where(m.PipelineStage.run_id==r.id).order_by(m.PipelineStage.position)).all()
- return {'id':r.id,'fixture_id':r.fixture_id,'mode':r.mode,'status':r.status,'created_at':r.created_at,'updated_at':r.updated_at,'stages':[{**serialize_stage(s),'href':serialize_stage(s)['href']+('&fixture_id='+r.fixture_id if r.fixture_id else '')} for s in stages],'progress':sum(s.status=='VERIFIED' for s in stages)/12,'verified_stages':sum(s.status=='VERIFIED' for s in stages),'fixture_count':1 if r.fixture_id else 0}
+ settled=sum(s.status in SETTLED for s in stages)
+ return {'id':r.id,'fixture_id':r.fixture_id,'mode':r.mode,'status':r.status,'outcome':(r.context or {}).get('outcome'),
+         'created_at':r.created_at,'updated_at':r.updated_at,'stages':[serialize_stage(s,r) for s in stages],
+         'progress':settled/12,'settled_stages':settled,'verified_stages':sum(s.status=='VERIFIED' for s in stages),'fixture_count':1 if r.fixture_id else 0}
 @router.get('/definitions')
-def definitions():return {'stages':[{'key':k,'name':n,'evidence_type':e} for k,n,e in STAGES],'colors':STATUS_COLORS,'mode':'PAPER'}
+def definitions():return {'stages':[{'key':k,'name':n,'evidence_type':e} for k,n,e in STAGES],'colors':STATUS_COLORS,'mode':'PAPER',
+                          'business_outcomes':sorted(BUSINESS_OUTCOMES),'settled_statuses':sorted(SETTLED)}
 @router.get('/runs')
 def runs():
  with SessionLocal() as db:
@@ -60,35 +84,20 @@ def create_run(item:CreateRun,x_admin_token:str|None=Header(None)):
   db.add(m.AuditEvent(actor='admin',action='pipeline.created',correlation_id=r.id,payload={'mode':'PAPER'}))
   db.flush()
   return serialize_run(db,r)
-@router.post('/runs/{run_id}/evaluate')
-def evaluate(run_id:str,item:EvidenceUpdate,x_admin_token:str|None=Header(None)):
- admin_guard(x_admin_token)
- if EXECUTION_MODE!='PAPER':raise HTTPException(403,'PAPER-only pipeline')
- # Evidence references are only evaluated, not independently authenticated by this endpoint.
- # They cannot be used to create qualified selections or booking codes.
- with SessionLocal.begin() as db:
-  r=db.scalar(select(m.PipelineRun).where(m.PipelineRun.id==run_id).with_for_update())
-  if not r:raise HTTPException(404,'Unknown run')
-  if r.status in ('FAILED','REJECTED','EXPIRED'):raise HTTPException(409,'Terminal run')
-  # Untrusted client claims are not evidence. Persist them only for review,
-  # never use them to mark a stage VERIFIED.
-  context={**(r.context or {}),**item.context}
-  verified_context={}
-  stages=db.scalars(select(m.PipelineStage).where(m.PipelineStage.run_id==run_id).order_by(m.PipelineStage.position).with_for_update()).all()
-  for s in stages:
-   if s.status=='VERIFIED':continue
-   if s.status in ('BLOCKED','FAILED','REJECTED','EXPIRED'):break
-   started=monotonic();s.started_at=utcnow();s.status='RUNNING'
-   state,error=gate(s.stage_key,verified_context)
-   s.finished_at=utcnow();s.duration_ms=max(0,int((monotonic()-started)*1000));s.status=state;s.error=error
-   s.input_payload={'required_evidence_type':STAGES[s.position-1][2]}
-   s.evidence_ids=[str(v) for k,vs in context.items() if k.endswith('_ids') and isinstance(vs,list) for v in vs][:100]
-   s.output_payload={'decision':state,'reason':error,'attestation':'NOT_VERIFIED'}
-   if state!='VERIFIED':break
-  r.context=context;r.updated_at=utcnow()
-  r.status='VERIFIED' if all(s.status=='VERIFIED' for s in stages) else ('BLOCKED' if any(s.status=='BLOCKED' for s in stages) else 'WAITING_FOR_DATA')
-  db.add(m.AuditEvent(actor='admin',action='pipeline.evaluated',correlation_id=r.id,payload={'status':r.status,'stage_states':[s.status for s in stages]}))
-  db.flush();return serialize_run(db,r)
+@router.get('/runs/{run_id}/history')
+def run_history(run_id:str,stage:str|None=None,limit:int=200):
+ """Immutable stage execution history in the standard data contract shape."""
+ with SessionLocal() as db:
+  if db.get(m.PipelineRun,run_id) is None:raise HTTPException(404,'Unknown run')
+  query=select(m.PipelineStageRun).where(m.PipelineStageRun.pipeline_run_id==run_id)
+  if stage:query=query.where(m.PipelineStageRun.stage==stage.lower())
+  rows=db.scalars(query.order_by(m.PipelineStageRun.started_at.desc(),m.PipelineStageRun.id).limit(min(max(limit,1),1000))).all()
+  return [{'id':h.id,'pipeline_run_id':h.pipeline_run_id,'fixture_id':h.fixture_id,'stage':h.stage.upper(),'status':h.status,'attempt':h.attempt,
+           'input_version':h.input_version,'output_version':h.output_version,'started_at':h.started_at,'completed_at':h.completed_at,
+           'duration_ms':h.duration_ms,'evidence_ids':h.evidence_ids,'output_reference':h.output_reference,
+           'quality_score':float(h.quality_score) if h.quality_score is not None else None,'failure_code':h.failure_code,
+           'failure_reason':h.failure_reason,'next_stage':h.next_stage.upper() if h.next_stage else None,'details':h.details} for h in rows]
+
 
 @router.post('/runs/{run_id}/execute')
 def execute(run_id:str,x_admin_token:str|None=Header(None)):

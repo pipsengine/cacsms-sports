@@ -18,6 +18,25 @@ def eligible(model, feature, dossier, fixture, now):
         return False, 'Sport-specific numeric feature contract unavailable'
     return True, None
 
+def forecast_details(artifact, features, probability):
+    """Uncertainty interval and additive explanation for one approved-artifact forecast.
+
+    The interval combines binomial sampling error of the out-of-sample holdout with the
+    measured calibration error recorded at promotion; it is not an assumed confidence.
+    """
+    import math
+    z=[(float(features[k])-artifact['means'][i])/artifact['scales'][i] for i,k in enumerate(FEATURE_NAMES)]
+    contributions=sorted(({'feature':k,'value':float(features[k]),'contribution_logit':round(artifact['coefficients'][i]*z[i],6)} for i,k in enumerate(FEATURE_NAMES)),
+                         key=lambda item:-abs(item['contribution_logit']))
+    holdout=(artifact.get('holdout_metrics') or {}).get('sample_size') or artifact.get('holdout_count') or 0
+    calibration_error=float(artifact.get('calibration_error') or 0)
+    sampling=1.96*math.sqrt(probability*(1-probability)/holdout) if holdout else 0.5
+    width=min(.5,sampling+calibration_error)
+    return {'interval':{'lower':round(max(0.0,probability-width),6),'upper':round(min(1.0,probability+width),6),'level':0.95,
+                        'method':'HOLDOUT_BINOMIAL_PLUS_CALIBRATION_ERROR','holdout_sample_size':holdout,'calibration_error':calibration_error},
+            'explanation':{'intercept_logit':artifact['intercept'],'contributions':contributions,'model':'standardised logistic regression'}}
+
+
 def infer_approved(db, fixture, now=None, dossier_id=None):
     """Persist only authorized binary home-win forecasts, idempotently. No fabricated models."""
     from sqlalchemy import select
@@ -40,14 +59,18 @@ def infer_approved(db, fixture, now=None, dossier_id=None):
                 market='1X2';outcome='HOME'
                 prior=db.scalar(select(m.Prediction).where(m.Prediction.fixture_id==fixture.id,m.Prediction.feature_id==feature.id,m.Prediction.model_id==model.id,m.Prediction.market_key==market,m.Prediction.outcome_key==outcome))
                 if prior:
+                    if not prior.details:
+                        try:prior.details=forecast_details(model.validation,feature.features['numeric_features'],float(prior.probability))
+                        except (KeyError,ValueError,TypeError,ZeroDivisionError,IndexError):pass
                     report['existing'].append(prior.id);continue
                 try:
                     probability=predict_from_artifact(model.validation,feature.features['numeric_features'])
-                except (KeyError,ValueError,TypeError,OverflowError,ZeroDivisionError) as exc:
+                    details=forecast_details(model.validation,feature.features['numeric_features'],probability)
+                except (KeyError,ValueError,TypeError,OverflowError,ZeroDivisionError,IndexError) as exc:
                     report['blocked'].append('Invalid approved model artifact: '+str(exc));continue
                 if not 0 < probability < 1:
                     report['blocked'].append('Probability out of bounds');continue
-                prediction=m.Prediction(fixture_id=fixture.id,feature_id=feature.id,model_id=model.id,market_key=market,outcome_key=outcome,probability=probability,predicted_at=now)
+                prediction=m.Prediction(fixture_id=fixture.id,feature_id=feature.id,model_id=model.id,market_key=market,outcome_key=outcome,probability=probability,predicted_at=now,details=details)
                 db.add(prediction);db.flush();report['created'].append(prediction.id)
                 db.add(m.AuditEvent(actor='pipeline-inference',action='prediction.prospective_created',correlation_id=fixture.id,payload={'prediction_id':prediction.id,'model_id':model.id,'feature_id':feature.id,'market_key':market,'outcome_key':outcome,'paper_only':True}))
     return report

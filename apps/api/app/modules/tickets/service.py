@@ -55,6 +55,7 @@ def prepare_paper_ticket(db,programme_key,qualification_ids,at=None):
     for leg in legs:db.add(m.TicketLeg(ticket_id=ticket.id,qualification_id=leg['qualification_id']))
     slip=m.Betslip(ticket_id=ticket.id,bookmaker=next(iter(bookmakers)),status='PAPER_PREPARED',selections=legs,combined_odds=odds,created_at=current)
     db.add(slip);db.flush()
-    db.add(m.TicketVerification(ticket_id=ticket.id,status='PAPER_VERIFIED',verified_at=current,reason_codes=[],evidence={'qualification_ids':qualification_ids,'source':'internal'}))
+    # Preparation is not verification: only the Verify stage may record PAPER_VERIFIED.
+    db.add(m.TicketVerification(ticket_id=ticket.id,status='PAPER_PREPARED',verified_at=current,reason_codes=[],evidence={'scope':'PREPARATION','qualification_ids':qualification_ids,'source':'internal'}))
     db.add(m.AuditEvent(actor='ticket-service',action='paper_ticket.prepared',correlation_id=ticket.id,payload={'programme':programme_key,'legs':len(legs),'combined_odds':str(odds)}))
     return {'id':ticket.id,'betslip_id':slip.id,'status':ticket.status,'programme':programme_key,'combined_odds':str(odds),'selections':legs,'booking_code':None,'verified_external':False}

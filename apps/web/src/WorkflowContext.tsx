@@ -5,7 +5,7 @@ import {workflowStages,stageHref} from './workflowStages';
 import {useResearchScope} from './ResearchCatalogue';
 import './WorkflowContext.css';
 type Row=Record<string,unknown>;
-type Stage={stage_key:string;name:string;status:string;error:string|null;started_at:string|null;finished_at:string|null;duration_ms:number|null;retry_count:number;next_retry_at:string|null;evidence_ids:string[];output:Row;href:string};
+type Stage={stage_key:string;name:string;status:string;error:string|null;started_at:string|null;finished_at:string|null;duration_ms:number|null;retry_count:number;next_retry_at:string|null;evidence_ids:string[];output:Row;href:string;input_version?:number;output_version?:number;output_reference?:string|null;failure_code?:string|null;next_stage?:string|null;quality_score?:number|null};
 type Context={fixture:{id:string;home_name:string;away_name:string;kickoff_at:string;competition_id:string;season_id:string|null;sport:string;competition:string};run:{id:string;fixture_id:string;status:string;progress:number;stages:Stage[]}|null;datasets:Record<string,Row[]>;operations:Row[]};
 const Workflow=createContext<{data:Context|null;error:string;loading:boolean}>({data:null,error:'',loading:false});
 export function WorkflowProvider({children}:{children:React.ReactNode}){
@@ -30,6 +30,7 @@ export function WorkflowContextPanel(){
  <div className="workflow-context-metrics"><div><small>Run</small><strong>{data.run?.id.slice(0,12)||'Awaiting automatic run'}</strong></div><div><small>{target?.[1]||key}</small><strong>{stage?.status.replaceAll('_',' ')||'No stage execution yet'}</strong></div><div><small>Progress</small><strong>{data.run?Math.round(data.run.progress*100)+'%':'-'}</strong></div><div><small>Evidence records</small><strong>{records.length}</strong></div></div>
  {stage?.error&&<div className="workflow-reason" role="status">{stage.error}</div>}
  {stage&&<p className="research-caption">Started: {stage.started_at?new Date(stage.started_at).toLocaleString():'Not started'} | Finished: {stage.finished_at?new Date(stage.finished_at).toLocaleString():'-'} | {stage.duration_ms??0} ms | Retries: {stage.retry_count}{stage.next_retry_at?' | Retry due '+new Date(stage.next_retry_at).toLocaleString():''}</p>}
+ {stage&&<p className="research-caption">Input v{stage.input_version??0} | Output v{stage.output_version??0}{stage.output_reference?' ('+stage.output_reference.slice(0,8)+')':''}{stage.quality_score!=null?' | Quality '+stage.quality_score:''}{stage.failure_code&&stage.status!=='VERIFIED'?' | '+stage.failure_code:''}{stage.next_stage?' | Next: '+stage.next_stage.toUpperCase():''}</p>}
  <details><summary>{target?.[3]||'Stage'}: recorded operation, evidence and inputs ({records.length})</summary><pre>{JSON.stringify(redact('',{stage,records}),null,2)}</pre></details>
  {key==='allocate'&&<div className="workflow-step-links">{['accumulator','singles','jackpot','draws','rollover'].map(p=><NavLink key={p} to={'/sports/programmes/'+p+'?'+new URLSearchParams({fixture_id:data.fixture.id,...(data.run?{run_id:data.run.id}:{}),stage:'allocate'})}>{p}</NavLink>)}</div>}
  </>}

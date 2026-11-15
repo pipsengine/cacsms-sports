@@ -37,3 +37,26 @@
 /* Keep the desktop sidebar offset out of the mobile canvas. */
 @media(max-width:1023px){.app .main{margin-left:0;width:100%;max-width:100%}.app .sidebar{width:260px}}
 @media(max-width:767px){.app .topbar{padding:0 15px}.app .top-left{gap:10px;min-width:0}.app .breadcrumbs{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.app .top-right{flex-shrink:0}.app .content{padding:20px 15px 85px}}
+
+/* Terminal business outcomes (no opportunity / insufficient data / rejected): settled, not failures. */
+.pipeline-indicator.outcome{background:#ede9fe;color:#6d28d9}
+.pipeline-legend i.outcome{background:#7c3aed}
+.pipeline-tile.outcome{background:#f5f3ff;border-color:#d8ccfb}
+.pipeline-tile.outcome .tiny-dot{background:#7c3aed}
+.pipeline-stage-meta{display:block;margin-top:3px;font-size:11px;color:#64748b;font-variant-numeric:tabular-nums}
+.pipeline-stage-reason{margin:0 15px 8px;font-size:12px;color:#475569;overflow-wrap:anywhere}
+
+/* Orchestrator: selected-stage detail under the process flow */
+.pipeline-workspace .sf-flow{margin-top:18px}
+.pipeline-stage-detail{margin-top:18px;border:1px solid #e2e8f0;border-left:4px solid #94a3b8;border-radius:14px;padding:16px;background:#fff}
+.pipeline-stage-detail.tone-done{border-left-color:#16a34a}.pipeline-stage-detail.tone-outcome{border-left-color:#7c3aed}.pipeline-stage-detail.tone-waiting,.pipeline-stage-detail.tone-running{border-left-color:#f59e0b}.pipeline-stage-detail.tone-blocked{border-left-color:#dc2626}
+.pipeline-stage-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.pipeline-stage-detail-head>div:first-child{display:flex;gap:12px;align-items:flex-start;min-width:0}
+.pipeline-stage-detail-head h3{margin:0;font-size:16px}.pipeline-stage-detail-head p{margin:4px 0 0;color:#64748b;font-size:13px}
+.pipeline-stage-detail-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pipeline-stage-detail .pipeline-details{padding:12px 0 0}
+.pipeline-stage-detail .pipeline-stage-reason{margin:10px 0 0}
+
+/* Long status words (e.g. WAITING_FOR_DATA) must wrap inside metric tiles on small screens. */
+.pipeline-metrics strong{overflow-wrap:anywhere}
+.pipeline-run-tabs{overflow-x:auto;max-width:100%}

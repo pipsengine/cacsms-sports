@@ -10,12 +10,26 @@ class Sport(Base):
  __tablename__='sports';__table_args__={'schema':'sports'}
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
  name:Mapped[str]=mapped_column(String(100),unique=True)
+class Country(Base):
+ __tablename__='countries';__table_args__=(UniqueConstraint('canonical_key',name='country_canonical_key'),{'schema':'sports'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ name:Mapped[str]=mapped_column(String(100))
+ canonical_key:Mapped[str]=mapped_column(String(100))
+ code:Mapped[str|None]=mapped_column(String(3))
 class Competition(Base):
  __tablename__='competitions';__table_args__={'schema':'sports'}
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
  sport_id:Mapped[str]=mapped_column(ForeignKey('sports.sports.id'))
  name:Mapped[str]=mapped_column(String(200))
  country:Mapped[str|None]=mapped_column(String(100))
+ country_id:Mapped[str|None]=mapped_column(ForeignKey('sports.countries.id'))
+class Team(Base):
+ __tablename__='teams';__table_args__=(UniqueConstraint('sport_id','canonical_key',name='team_canonical_key'),{'schema':'sports'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ sport_id:Mapped[str]=mapped_column(ForeignKey('sports.sports.id'))
+ country_id:Mapped[str|None]=mapped_column(ForeignKey('sports.countries.id'))
+ name:Mapped[str]=mapped_column(String(200))
+ canonical_key:Mapped[str]=mapped_column(String(200))
 class Fixture(Base):
  __tablename__='fixtures';__table_args__=(UniqueConstraint('competition_id','home_name','away_name','kickoff_at',name='canonical_fixture'),{'schema':'fixtures'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
@@ -23,6 +37,8 @@ class Fixture(Base):
  season_id:Mapped[str|None]=mapped_column(ForeignKey('sports.competition_seasons.id'),index=True)
  home_name:Mapped[str]=mapped_column(String(200))
  away_name:Mapped[str]=mapped_column(String(200))
+ home_team_id:Mapped[str|None]=mapped_column(ForeignKey('sports.teams.id'))
+ away_team_id:Mapped[str|None]=mapped_column(ForeignKey('sports.teams.id'))
  kickoff_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),index=True)
  status:Mapped[str]=mapped_column(String(30),default='SCHEDULED')
  competition:Mapped['Competition']=relationship()
@@ -77,6 +93,8 @@ class Prediction(Base):
  outcome_key:Mapped[str]=mapped_column(String(100))
  probability:Mapped[float]=mapped_column(Numeric(9,7))
  predicted_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ # Uncertainty interval and per-feature explanation computed from the approved artifact.
+ details:Mapped[dict|None]=mapped_column(JSON,default=dict)
 class Odds(Base):
  __tablename__='odds_snapshots';__table_args__=(CheckConstraint('decimal_odds > 1',name='positive_odds'),{'schema':'markets'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
@@ -257,6 +275,36 @@ class PipelineStage(Base):
  duration_ms:Mapped[int|None]=mapped_column(Integer)
  next_retry_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
  operation_key:Mapped[str|None]=mapped_column(String(64))
+ # Latest-state projection of the standard stage data contract (history lives in PipelineStageRun).
+ input_version:Mapped[int]=mapped_column(Integer,default=0)
+ output_version:Mapped[int]=mapped_column(Integer,default=0)
+ output_reference:Mapped[str|None]=mapped_column(String(36))
+ quality_score:Mapped[float|None]=mapped_column(Numeric(6,4))
+ failure_code:Mapped[str|None]=mapped_column(String(80))
+ next_stage:Mapped[str|None]=mapped_column(String(30))
+
+
+class PipelineStageRun(Base):
+ """Immutable, append-only execution history: one row per stage attempt."""
+ __tablename__='pipeline_stage_runs';__table_args__=(Index('ix_pipeline_stage_runs_run','pipeline_run_id','stage','started_at'),{'schema':'operations'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ pipeline_run_id:Mapped[str]=mapped_column(ForeignKey('operations.pipeline_runs.id'),nullable=False)
+ fixture_id:Mapped[str|None]=mapped_column(String(36),index=True)
+ stage:Mapped[str]=mapped_column(String(30),nullable=False)
+ status:Mapped[str]=mapped_column(String(30),nullable=False)
+ attempt:Mapped[int]=mapped_column(Integer,default=1)
+ input_version:Mapped[int]=mapped_column(Integer,default=0)
+ output_version:Mapped[int]=mapped_column(Integer,default=0)
+ started_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False)
+ completed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ duration_ms:Mapped[int|None]=mapped_column(Integer)
+ evidence_ids:Mapped[list]=mapped_column(JSON,default=list)
+ output_reference:Mapped[str|None]=mapped_column(String(36))
+ quality_score:Mapped[float|None]=mapped_column(Numeric(6,4))
+ failure_code:Mapped[str|None]=mapped_column(String(80))
+ failure_reason:Mapped[str|None]=mapped_column(Text)
+ next_stage:Mapped[str|None]=mapped_column(String(30))
+ details:Mapped[dict]=mapped_column(JSON,default=dict)
 
 
 class CompetitionSeason(Base):
@@ -321,6 +369,8 @@ class PipelineEvent(Base):
  __tablename__='pipeline_events';__table_args__=(UniqueConstraint('event_key'),Index('ix_pipeline_events_due','status','available_at'),{'schema':'operations'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
  event_key:Mapped[str]=mapped_column(String(64))
+ # Digest of the changed entity state; only de-duplicates against undelivered events.
+ content_hash:Mapped[str|None]=mapped_column(String(64),index=True)
  fixture_id:Mapped[str|None]=mapped_column(String(36))
  kind:Mapped[str]=mapped_column(String(80))
  payload:Mapped[dict]=mapped_column(JSON,default=dict)
@@ -345,6 +395,20 @@ class StageRecord(Base):
  details:Mapped[dict]=mapped_column(JSON,default=dict)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+
+
+class TeamStatistic(Base):
+ """Per-team statistics normalised from authorized acquisition evidence."""
+ __tablename__='team_statistics';__table_args__=(UniqueConstraint('team_id','observation_id',name='team_statistic_observation'),{'schema':'research'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ team_id:Mapped[str]=mapped_column(ForeignKey('sports.teams.id'),nullable=False,index=True)
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'),nullable=False,index=True)
+ observation_id:Mapped[str]=mapped_column(ForeignKey('sources.observations.id'),nullable=False)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'),nullable=False)
+ section:Mapped[str]=mapped_column(String(40))
+ side:Mapped[str]=mapped_column(String(4))
+ as_of:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+ statistics:Mapped[dict]=mapped_column(JSON,default=dict)
 
 
 class MarketEvidence(Base):

@@ -3,6 +3,20 @@ from sqlalchemy import select
 from app.db.base import SessionLocal
 from app.db import models as m
 router=APIRouter(prefix='/api/v1/sports',tags=['Model governance'])
+
+
+@router.post('/models/{model_id}/promote')
+def promote(model_id:str,x_admin_token:str|None=Header(None)):
+ """Promote a challenger only if its out-of-sample validation passes; flags are server-computed."""
+ from app.modules.pipeline.routes import admin_guard
+ from app.modules.governance.promotion import promote_model
+ admin_guard(x_admin_token)
+ try:
+  with SessionLocal.begin() as db:result=promote_model(db,model_id,actor='admin')
+ except LookupError as exc:raise HTTPException(404,str(exc)) from exc
+ except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+ if not result['promoted']:raise HTTPException(422,{'message':'Out-of-sample validation failed','reasons':result['reasons'],'evidence':result['evidence']})
+ return result
 @router.get('/governance/summary')
 def governance_summary():
  with SessionLocal() as db:

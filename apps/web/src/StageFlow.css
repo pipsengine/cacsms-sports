@@ -1,0 +1,67 @@
+/* Twelve-stage process flow: nodes joined by directional connectors. */
+.sf-flow{--sf-cols:6;--sf-gap:30px;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--sf-cols),minmax(0,1fr));column-gap:var(--sf-gap);row-gap:16px}
+.sf-step{position:relative;min-width:0;display:flex}
+.sf-card{all:unset;box-sizing:border-box;display:flex;gap:10px;align-items:flex-start;width:100%;min-height:96px;padding:12px;border-radius:14px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;cursor:default;text-decoration:none;transition:box-shadow .15s,border-color .15s,transform .15s}
+a.sf-card,button.sf-card{cursor:pointer}
+a.sf-card:hover,button.sf-card:hover{box-shadow:0 6px 16px #0f172a14;transform:translateY(-1px)}
+a.sf-card:focus-visible,button.sf-card:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.sf-selected .sf-card{border-color:#2563eb;box-shadow:0 0 0 3px #2563eb22}
+.sf-node{flex-shrink:0;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#f1f5f9;color:#64748b}
+.sf-node svg{width:18px;height:18px}
+.sf-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.sf-index{display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:10px;font-weight:800;letter-spacing:.06em;color:#94a3b8;font-variant-numeric:tabular-nums}
+.sf-continuous{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;letter-spacing:0;color:#0369a1;background:#e0f2fe;border-radius:10px;padding:2px 6px;white-space:nowrap}
+.sf-continuous svg{width:10px;height:10px}
+.sf-text b{font-size:13px;line-height:1.25;overflow-wrap:anywhere}
+.sf-state{font-size:11px;font-weight:700}
+.sf-meta{font-size:11px;color:#64748b;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.sf-bar{display:flex;height:5px;border-radius:4px;overflow:hidden;background:#eef2f7;margin-top:6px}
+.sf-bar i{display:block;height:100%}
+.sf-seg-done{background:#16a34a}.sf-seg-outcome{background:#7c3aed}.sf-seg-waiting{background:#f59e0b}.sf-seg-blocked{background:#dc2626}
+/* Tones */
+.sf-done .sf-card{background:#f0fdf4;border-color:#bbf7d0}.sf-done .sf-node{background:#16a34a;color:#fff}.sf-done .sf-state{color:#15803d}
+.sf-outcome .sf-card{background:#f5f3ff;border-color:#ddd6fe}.sf-outcome .sf-node{background:#7c3aed;color:#fff}.sf-outcome .sf-state{color:#6d28d9}
+.sf-running .sf-card{background:#eff6ff;border-color:#bfdbfe}.sf-running .sf-node{background:#2563eb;color:#fff}.sf-running .sf-state{color:#1d4ed8}
+.sf-waiting .sf-card{background:#fffbeb;border-color:#fde68a}.sf-waiting .sf-node{background:#f59e0b;color:#fff}.sf-waiting .sf-state{color:#b45309}
+.sf-blocked .sf-card{background:#fef2f2;border-color:#fecaca}.sf-blocked .sf-node{background:#dc2626;color:#fff}.sf-blocked .sf-state{color:#b91c1c}
+.sf-skipped .sf-card{background:#f8fafc;border-style:dashed}.sf-skipped .sf-state,.sf-pending .sf-state{color:#64748b}
+.sf-spin{animation:sf-spin 1.4s linear infinite}
+@keyframes sf-spin{to{transform:rotate(360deg)}}
+/* Connectors sit in the column gap and point to the next stage. */
+.sf-arrow{position:absolute;top:50%;right:calc(-1 * var(--sf-gap));width:var(--sf-gap);height:16px;transform:translateY(-50%);display:flex;align-items:center;color:#cbd5e1;pointer-events:none}
+.sf-arrow .sf-line{flex:1;border-top:2px dashed currentColor;margin-right:-5px}
+.sf-arrow svg{width:14px;height:14px;flex-shrink:0}
+.sf-arrow-flow{color:#16a34a}.sf-arrow-flow .sf-line{border-top-style:solid}
+.sf-arrow-diverted{color:#a78bfa}
+.sf-arrow-active{color:#f59e0b}.sf-arrow-active svg{animation:sf-nudge 1.2s ease-in-out infinite}
+.sf-arrow-stopped{color:#fca5a5}
+@keyframes sf-nudge{50%{transform:translateX(3px)}}
+.sf-step:nth-child(6n) .sf-arrow{display:none}
+.sf-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:11px;color:#475569}
+.sf-legend span{display:inline-flex;align-items:center;gap:6px}
+.sf-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.sf-dot.done{background:#16a34a}.sf-dot.outcome{background:#7c3aed}.sf-dot.waiting{background:#f59e0b}.sf-dot.blocked{background:#dc2626}.sf-dot.pending{background:#94a3b8}
+/* Compact (dashboards / aggregate views) */
+.sf-compact{--sf-gap:22px}
+.sf-compact .sf-card{min-height:78px;padding:10px;gap:8px}
+.sf-compact .sf-node{width:26px;height:26px}
+.sf-compact .sf-node svg{width:15px;height:15px}
+@media (max-width:1180px){
+ .sf-flow{--sf-cols:4}
+ .sf-step:nth-child(6n) .sf-arrow{display:flex}
+ .sf-step:nth-child(4n) .sf-arrow{display:none}
+}
+@media (max-width:720px){
+ .sf-flow{--sf-cols:2}
+ .sf-step:nth-child(4n) .sf-arrow{display:flex}
+ .sf-step:nth-child(2n) .sf-arrow{display:none}
+}
+@media (max-width:460px){
+ .sf-flow{--sf-cols:1;row-gap:26px}
+ .sf-step .sf-arrow,.sf-step:nth-child(2n) .sf-arrow{display:flex;top:auto;bottom:-24px;right:auto;left:22px;width:16px;height:22px;transform:none;flex-direction:column}
+ .sf-arrow .sf-line{border-top:0;border-left:2px dashed currentColor;margin:0 0 -5px 0;width:0;align-self:center}
+ .sf-arrow-flow .sf-line{border-left-style:solid}
+ .sf-arrow svg{transform:rotate(90deg)}
+ .sf-arrow-active svg{animation:none}
+}
+@media (prefers-reduced-motion:reduce){.sf-spin,.sf-arrow-active svg{animation:none}}

@@ -33,10 +33,12 @@ def main():
   page.on('pageerror',lambda error:errors.append(str(error)))
   page.on('response',lambda response:bad.append((response.status,response.url)) if '/api/' in response.url and response.status>=400 else None)
   page.goto(BASE+'/sports/dashboard',wait_until='domcontentloaded')
-  page.locator('.fd-stage').first.wait_for();settled()
-  assert page.locator('.fd-stage').count()==12
+  stage_links=page.locator('.fd-pipeline .sf-step a.sf-card')
+  stage_links.first.wait_for();settled()
+  assert stage_links.count()==12
+  assert page.locator('.fd-pipeline .sf-arrow').count()==11
   page.get_by_role('region',name='Autonomous operation').wait_for()
-  links=page.locator('.fd-stage').evaluate_all('(items)=>items.map(x=>x.getAttribute("href"))')
+  links=stage_links.evaluate_all('(items)=>items.map(x=>x.getAttribute("href"))')
   assert len(links)==12
   for index,href in enumerate(links):
    assert urlparse(href).path=='/sports/'+TARGETS[index]
@@ -48,6 +50,18 @@ def main():
     assert not page.locator('.workflow-context .error').count()
     assert page.locator('.workflow-step-links').first.locator('a').count()==12
    assert page.locator('.sidebar .nav-link').count()==29
+  # Orchestrator renders the same twelve stages as a selectable process flow.
+  page.goto(BASE+'/sports/orchestrator',wait_until='domcontentloaded')
+  page.locator('.pipeline-workspace .sf-step').first.wait_for();settled()
+  assert page.locator('.pipeline-workspace .sf-step').count()==12
+  page.locator('.pipeline-workspace button.sf-card').nth(3).click()
+  page.locator('.pipeline-stage-detail h3',has_text='Analyse').wait_for()
+  # Fixtures & Competitions: real overview data, aggregate process flow and tabs.
+  page.goto(BASE+'/sports/fixtures',wait_until='domcontentloaded')
+  page.locator('.af-root .sf-step').first.wait_for();settled()
+  assert page.locator('.af-root .sf-step').count()==12
+  for tab in ('Competitions','Countries','Leagues & Divisions','Research Coverage','Fixtures'):
+   page.get_by_role('tab',name=tab).click();settled()
   nav=(ROOT/'apps/web/src/navigation.ts').read_text(encoding='utf-8')
   slugs=re.findall(r"\['[^']+','([^']+)'\]",nav)
   assert len(slugs)==29

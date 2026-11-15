@@ -102,6 +102,8 @@ def create_challenger(session,sport_id,name,version,examples):
     if session.scalar(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.name==name,m.ModelVersion.version==version)):
         raise ValueError('Model version already exists')
     artifact=fit_challenger(examples)
+    # Approval flags are computed only by governance promotion, never carried in by a challenger.
+    for key in ('approved','out_of_sample','calibrated','calibration_verified'):artifact.pop(key,None)
     obj=m.ModelVersion(sport_id=sport_id,name=name,version=version,status='CHALLENGER',validation=artifact)
     session.add(obj);session.flush()
     return {'id':obj.id,'status':obj.status,'validation':artifact}

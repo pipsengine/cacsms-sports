@@ -32,8 +32,10 @@ def workflow_context(db,run_id=None,fixture_id=None):
  dossiers=db.scalars(select(m.Research).where(m.Research.fixture_id==fixture_id)).all();dids=[row.id for row in dossiers]
  operation_records=records(m.StageRecord,m.StageRecord.run_id==run.id) if run else []
  by_stage={key:[] for key in ('discover','acquire','research','analyse','predict','evaluate','qualify','allocate','prepare','verify','monitor','reconcile')}
- by_stage['discover']=[{**columns(fixture),'sport':sport.name,'competition':competition.name}]
- by_stage['acquire']=records(m.Observation,m.Observation.fixture_id==fixture_id)+records(m.AcquisitionJob,m.AcquisitionJob.fixture_id==fixture_id)+records(m.BrowserCapture,m.BrowserCapture.fixture_id==fixture_id)
+ teams=[columns(row) for row in (db.get(m.Team,ident) for ident in (fixture.home_team_id,fixture.away_team_id) if ident) if row]
+ country=db.get(m.Country,competition.country_id) if competition.country_id else None
+ by_stage['discover']=[{**columns(fixture),'sport':sport.name,'competition':competition.name,'country':country.name if country else competition.country}]+teams
+ by_stage['acquire']=records(m.Observation,m.Observation.fixture_id==fixture_id)+records(m.TeamStatistic,m.TeamStatistic.fixture_id==fixture_id)+records(m.AcquisitionJob,m.AcquisitionJob.fixture_id==fixture_id)+records(m.BrowserCapture,m.BrowserCapture.fixture_id==fixture_id)
  by_stage['research']=[columns(row) for row in dossiers]
  by_stage['analyse']=records(m.Feature,m.Feature.research_id.in_(dids))
  by_stage['predict']=[columns(row) for row in predictions]
@@ -45,8 +47,9 @@ def workflow_context(db,run_id=None,fixture_id=None):
  by_stage['monitor']=[row for row in operation_records if row['stage_key']=='monitor'][:20]
  results=db.scalars(select(m.Result).where(m.Result.fixture_id==fixture_id)).all()
  by_stage['reconcile']=[columns(row) for row in results]+records(m.Settlement,m.Settlement.result_id.in_([row.id for row in results]))
+ history=[columns(row) for row in db.scalars(select(m.PipelineStageRun).where(m.PipelineStageRun.pipeline_run_id==run.id).order_by(m.PipelineStageRun.started_at.desc()).limit(200))] if run else []
  return {'fixture':{**columns(fixture),'sport':sport.name,'competition':competition.name,'sport_id':sport.id},
-         'run':serialize_run(db,run) if run else None,'datasets':by_stage,'operations':operation_records}
+         'run':serialize_run(db,run) if run else None,'datasets':by_stage,'operations':operation_records,'history':history}
 
 
 @router.get('/context')

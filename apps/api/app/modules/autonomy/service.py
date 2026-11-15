@@ -5,7 +5,7 @@ from sqlalchemy import select,func,or_,case
 from sqlalchemy.exc import IntegrityError
 from app.db import models as m
 from app.db.base import SessionLocal
-from app.modules.pipeline.logic import STAGES
+from app.modules.pipeline.logic import STAGES,earliest
 from app.modules.research.league import utc
 from app.modules.prediction.prospective import REQUIRED_APPROVALS
 
@@ -76,7 +76,7 @@ def cycle(factory=SessionLocal,fetcher=None):
  token=claim(factory,force=has_events)
  if token is None:return {'status':'NOT_DUE_OR_ALREADY_RUNNING'}
  report={'created_runs':0,'processed_runs':0,'queued_jobs':0,'blockers':[],'errors':[],'consumed_events':0}
- event_ids=[];event_fixtures=set();global_event=False;target_ids=set();processed_ids=set();failed_ids=set()
+ event_ids=[];event_fixtures=set();global_event=False;target_ids=set();processed_ids=set();failed_ids=set();plan={}
  try:
   from app.modules.autonomy.openligadb import collect as collect_open_data
   report['open_data']=collect_open_data(factory)
@@ -101,6 +101,9 @@ def cycle(factory=SessionLocal,fetcher=None):
      remaining=list(db.scalars(query))
      event.payload={**event.payload,'remaining_run_ids':remaining}
     target_ids.update(remaining)
+    # Each change names the earliest stage it can affect; only that stage is invalidated.
+    stage=event.payload.get('invalidate_from') or 'discover'
+    for ident in remaining:plan[ident]=earliest([plan.get(ident),stage])
    sources=db.scalar(select(func.count()).select_from(m.Source).where(m.Source.enabled.is_(True),m.Source.permission=='AUTHORIZED')) or 0
    fixtures=db.scalar(select(func.count()).select_from(m.Fixture)) or 0
    models=db.scalars(select(m.ModelVersion).where(m.ModelVersion.status=='ACTIVE')).all()
@@ -114,13 +117,12 @@ def cycle(factory=SessionLocal,fetcher=None):
       .order_by(case((m.PipelineRun.id.in_(target_ids),0),else_=1),m.PipelineRun.updated_at,m.PipelineRun.id).limit(25)).all()
   jobs=set()
   from app.modules.pipeline.runner import drive_run
-  from app.modules.pipeline.executor import execute_run
   for ident in ids:
    try:
     with factory.begin() as db:
      run=db.scalar(select(m.PipelineRun).where(m.PipelineRun.id==ident).with_for_update(skip_locked=True))
      if run is None:continue
-     detail=drive_run(db,run,recovery=run.id in target_ids)
+     detail=drive_run(db,run,invalidate_from=plan.get(run.id))
      run.context={**(run.context or {}),'last_engine_report':detail}
      jobs.update(detail['queued_job_ids']);report['processed_runs']+=1;processed_ids.add(run.id)
      report['blockers'].extend(detail['blocked'])
