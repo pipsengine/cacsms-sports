@@ -21,7 +21,13 @@ def validate_result_payload(payload:dict[str,Any])->dict[str,Any]:
             if not isinstance(selection,str) or not selection.strip() or result not in ('WON','LOST','VOID','PUSH'):
                 raise ResultValidationError('Outcomes must be WON, LOST, VOID or PUSH')
             normalized[market][selection]=result
-    return {'status':'FINAL','outcomes':normalized}
+    clean = {'status':'FINAL','outcomes':normalized}
+    if 'score' in payload:
+        score = payload['score']
+        if not isinstance(score, dict) or any(type(score.get(k)) is not int or score[k] < 0 for k in ('home', 'away')):
+            raise ResultValidationError('Score requires nonnegative integer home and away goals')
+        clean['score'] = {k: score[k] for k in ('home', 'away')}
+    return clean
 
 def settle_outcome(payload:dict[str,Any],market_key:str,outcome_key:str)->str:
     normalized=validate_result_payload(payload)

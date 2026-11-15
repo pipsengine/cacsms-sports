@@ -95,3 +95,21 @@ See `docs/RELEASE_V3_3.md`. Live readiness: `GET /api/v1/sports/readiness`. PAPE
 
 ## Version 3.7
 See `docs/RELEASE_V3_7.md` for naming and prospective approved-model inference.
+
+## Top-two club research integration
+
+The supplied 2.9 research scaffold is adapted to the existing evidence-backed API and Research workspace. See [integration details](docs/RESEARCH_SCAFFOLD_INTEGRATION.md) for endpoints, score intake, scope and limitations.
+
+### Windows development setup
+
+From the repository root, create the API environment once:
+
+```powershell
+python -m venv apps/api/.venv
+apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements.txt
+npm --prefix apps/web ci
+```
+
+Set `DATABASE_URL` in the root `.env` for your local PostgreSQL database. Percent-encode special characters in the URL password (for example, `@` becomes `%40`). Then run `npm run dev` from the repository root; it starts the API, local scheduler and frontend together. The `.env` and `.venv` are ignored by Git.
+
+On this workstation, the API virtual environment reuses the already installed Python packages (`--system-site-packages`); `pip check` confirms their dependencies are compatible.

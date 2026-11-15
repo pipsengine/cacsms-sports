@@ -467,14 +467,17 @@ app.include_router(pipeline_router)
 from app.modules.live.routes import router as live_router
 app.include_router(live_router)
 
-@app.get(PREFIX+'/{resource:path}')
-def list_resource(resource:str):
- if resource not in TABLES:raise HTTPException(404,'Unknown resource')
- try:return rows_for(resource)
- except SQLAlchemyError as exc:raise HTTPException(503,'Database unavailable or migration missing') from exc
-
 # V3.3: Readiness is deliberately separate from liveness and fails closed.
 from app.modules.readiness import assess_readiness
 @app.get(PREFIX + '/readiness')
 def readiness():
  return assess_readiness()
+
+from app.modules.research.league_routes import router as league_router
+app.include_router(league_router)
+
+@app.get(PREFIX+'/{resource:path}')
+def list_resource(resource:str):
+ if resource not in TABLES:raise HTTPException(404,'Unknown resource')
+ try:return rows_for(resource)
+ except SQLAlchemyError as exc:raise HTTPException(503,'Database unavailable or migration missing') from exc
