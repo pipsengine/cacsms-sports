@@ -4,7 +4,7 @@ from app.db import models as m
 SECTIONS=('standings','recent_form','head_to_head','team_news','lineups','injuries','match_statistics')
 VALID={'VERIFIED','MISSING','PENDING','CONFLICTED'}
 
-def build_dossier(session,fixture_id,sections,evidence_ids):
+def build_dossier(session,fixture_id,sections,evidence_ids,*,at=None):
     fixture=session.get(m.Fixture,fixture_id)
     if fixture is None:raise ValueError('Fixture does not exist')
     if not isinstance(sections,dict) or set(sections)-set(SECTIONS):raise ValueError('Unknown research section')
@@ -24,5 +24,7 @@ def build_dossier(session,fixture_id,sections,evidence_ids):
     status='VERIFIED' if all(s['status']=='VERIFIED' for s in normalized.values()) else 'PARTIAL'
     version=(session.scalar(select(func.max(m.Research.version)).where(m.Research.fixture_id==fixture_id)) or 0)+1
     dossier=m.Research(fixture_id=fixture_id,version=version,status=status,sections=normalized,evidence_ids=evidence_ids)
+    
+    if at is not None:dossier.created_at=at
     session.add(dossier);session.flush()
     return {'id':dossier.id,'fixture_id':fixture_id,'version':version,'status':status,'sections':normalized,'evidence_ids':evidence_ids}

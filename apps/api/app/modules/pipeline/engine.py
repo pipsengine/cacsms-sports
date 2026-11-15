@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from app.db import models as m
 from app.modules.pipeline.logic import utcnow
+from app.modules.research.league import utc as db_utc
 from app.modules.acquisition.service import ALLOWED_SECTIONS
 from app.modules.research.service import SECTIONS, build_dossier
 from app.modules.acquisition.jobs import enqueue, feed_config
@@ -25,7 +26,7 @@ def connect_engines(db, run):
     if fixture is None:
         report['blocked'].append('discover: no canonical fixture')
         return report
-    if fixture.kickoff_at<=utcnow():
+    if db_utc(fixture.kickoff_at)<=utcnow():
         # Post-event operations: acquire authorized final-result evidence; never backfill prospective forecasts.
         feeds=feed_config()
         for source in db.scalars(select(m.Source).where(m.Source.enabled.is_(True),m.Source.permission=='AUTHORIZED')).all():
@@ -42,7 +43,7 @@ def connect_engines(db, run):
     usable=[]
     for obs in observations:
         source=db.get(m.Source,obs.source_id)
-        if source and source.enabled and source.permission=='AUTHORIZED' and obs.content_hash and obs.observed_at and obs.observed_at<=utcnow() and obs.payload.get('section') in SECTIONS:
+        if source and source.enabled and source.permission=='AUTHORIZED' and obs.content_hash and obs.observed_at and db_utc(obs.observed_at)<=utcnow() and obs.payload.get('section') in SECTIONS:
             usable.append(obs)
     available={o.payload['section'] for o in usable}
     feeds=feed_config()
@@ -75,7 +76,7 @@ def connect_engines(db, run):
     dossier=max(verified,key=lambda d:d.version)
     features=db.scalars(select(m.Feature).where(m.Feature.research_id==dossier.id)).all()
     if not features:
-        cutoff=min(utcnow(),fixture.kickoff_at-timedelta(seconds=1))
+        cutoff=min(utcnow(),db_utc(fixture.kickoff_at)-timedelta(seconds=1))
         try:
             built=build_feature_snapshot(db,research_id=dossier.id,cutoff_at=cutoff,required_sections=list(SECTIONS))
             report['actions'].append('features:materialized:'+built['id'])
@@ -102,7 +103,7 @@ def connect_engines(db, run):
             continue
         for price in odds:
             if pred.market_key!=price.market_key or pred.outcome_key!=price.outcome_key:continue
-            if price.observed_at>utcnow() or utcnow()-price.observed_at>timedelta(minutes=15):continue
+            if db_utc(price.observed_at)>utcnow() or utcnow()-db_utc(price.observed_at)>timedelta(minutes=15):continue
             exists=db.scalar(select(m.Qualification.id).where(m.Qualification.prediction_id==pred.id,m.Qualification.odds_id==price.id))
             if exists:continue
             decision=qualify_from_database(db,pred.id,price.id)

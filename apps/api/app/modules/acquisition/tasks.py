@@ -8,7 +8,7 @@ from app.db import models as m
 from app.modules.acquisition.jobs import run_job,utcnow
 celery_app=Celery('sports_acquisition',broker=os.getenv('REDIS_URL','redis://redis:6379/0'))
 celery_app.conf.update(task_serializer='json',accept_content=['json'],result_backend=None,task_acks_late=True,worker_prefetch_multiplier=1,broker_connection_retry_on_startup=True)
-celery_app.conf.beat_schedule={'recover-acquisition-jobs':{'task':'acquisition.recover','schedule':30.0},'reconcile-results':{'task':'results.reconcile','schedule':300.0},'model-governance':{'task':'models.governance','schedule':3600.0},'pipeline-recheck':{'task':'pipeline.recheck','schedule':60.0},'pipeline-drive':{'task':'pipeline.drive','schedule':120.0}}
+celery_app.conf.beat_schedule={'recover-acquisition-jobs':{'task':'acquisition.recover','schedule':30.0},'reconcile-results':{'task':'results.reconcile','schedule':300.0},'model-governance':{'task':'models.governance','schedule':3600.0},'autonomous-cycle':{'task':'autonomy.cycle','schedule':30.0}}
 @celery_app.task(name='acquisition.execute',acks_late=True)
 def execute(job_id):return run_job(job_id)
 @celery_app.task(name='acquisition.recover')
@@ -68,3 +68,9 @@ def drive_pipelines():
   try:execute.delay(job_id)
   except Exception:errors+=1
  return {'processed':processed,'queued':len(set(queued)),'errors':errors}
+
+
+@celery_app.task(name='autonomy.cycle')
+def autonomous_cycle():
+ from app.modules.autonomy.service import cycle
+ return cycle()

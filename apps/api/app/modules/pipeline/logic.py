@@ -15,8 +15,8 @@ def utcnow():return datetime.now(timezone.utc)
 def gate(stage:str, context:dict[str,Any]):
  """Require explicit evidence for every stage; never infer success from prior status."""
  if stage not in {s[0] for s in STAGES}:raise ValueError('Unknown stage')
- if stage=='verify' and not context.get('booking_provider_configured'):
-  return 'WAITING_FOR_DATA','Verified booking-code provider unavailable'
+ if stage=='verify' and context.get('paper_only') is not True:
+  return 'WAITING_FOR_DATA','Verified paper betslip evidence required'
  if stage=='reconcile' and not context.get('official_result_final'):
   return 'WAITING_FOR_DATA','Final official result not available'
  required={
@@ -25,7 +25,7 @@ def gate(stage:str, context:dict[str,Any]):
   'predict':('approved_model_ids','prediction_ids'),
   'evaluate':('fresh_odds_ids','matching_market_ids'),
   'qualify':('qualified_decision_ids',), 'allocate':('programme_allocation_ids',),
-  'prepare':('verified_paper_ticket_ids',), 'verify':('verified_booking_code_ids',),
+  'prepare':('verified_paper_ticket_ids',), 'verify':('verified_betslip_ids','paper_verification_ids'),
   'monitor':('monitoring_evidence_ids',), 'reconcile':('official_result_ids','settlement_ids')}
  for key in required[stage]:
   value=context.get(key)

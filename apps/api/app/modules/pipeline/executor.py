@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from app.db import models as m
 from app.modules.pipeline.logic import STAGES, gate, utcnow
+from app.modules.research.league import utc as db_utc
 
 
 def evidence_for(db, fixture_id):
@@ -39,7 +40,7 @@ def evidence_for(db, fixture_id):
         ctx['prediction_ids']=[p.id for p in valid_predictions]
     odds=db.scalars(select(m.Odds).where(m.Odds.fixture_id==fixture_id)).all()
     now=utcnow()
-    fresh=[o for o in odds if o.observed_at and timedelta(0)<=now-o.observed_at<=timedelta(minutes=15) and float(o.decimal_odds)>1]
+    fresh=[o for o in odds if o.observed_at and timedelta(0)<=now-db_utc(o.observed_at)<=timedelta(minutes=15) and float(o.decimal_odds)>1]
     matching=[o for o in fresh if any(p.market_key==o.market_key and p.outcome_key==o.outcome_key for p in valid_predictions)]
     if matching:
         ctx['fresh_odds_ids']=[o.id for o in matching]

@@ -33,3 +33,7 @@
  .app.collapsed .main{margin-left:0}
 }
 @media(prefers-reduced-motion:reduce){.sidebar,.main{transition:none}}
+
+/* Keep the desktop sidebar offset out of the mobile canvas. */
+@media(max-width:1023px){.app .main{margin-left:0;width:100%;max-width:100%}.app .sidebar{width:260px}}
+@media(max-width:767px){.app .topbar{padding:0 15px}.app .top-left{gap:10px;min-width:0}.app .breadcrumbs{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.app .top-right{flex-shrink:0}.app .content{padding:20px 15px 85px}}

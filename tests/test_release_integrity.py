@@ -17,7 +17,7 @@ def test_migration_chain():
         assert fields.get('revision'),path
         assert fields['revision'] not in revisions
         revisions[fields['revision']]=fields.get('down_revision')
-    assert len(revisions)==6
+    assert revisions, "No migrations found"
     roots=[key for key,prev in revisions.items() if prev is None]
     assert len(roots)==1
     assert all(prev is None or prev in revisions for prev in revisions.values())

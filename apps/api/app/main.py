@@ -476,6 +476,12 @@ def readiness():
 from app.modules.research.league_routes import router as league_router
 app.include_router(league_router)
 
+from app.modules.research.catalog_routes import router as research_catalog_router
+app.include_router(research_catalog_router)
+
+from app.modules.autonomy.routes import router as autonomy_router
+app.include_router(autonomy_router)
+
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):
  if resource not in TABLES:raise HTTPException(404,'Unknown resource')

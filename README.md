@@ -113,3 +113,11 @@ npm --prefix apps/web ci
 Set `DATABASE_URL` in the root `.env` for your local PostgreSQL database. Percent-encode special characters in the URL password (for example, `@` becomes `%40`). Then run `npm run dev` from the repository root; it starts the API, local scheduler and frontend together. The `.env` and `.venv` are ignored by Git.
 
 On this workstation, the API virtual environment reuses the already installed Python packages (`--system-site-packages`); `pip check` confirms their dependencies are compatible.
+
+## Integrated v3.0 research catalogue
+
+Shared sport/country/league/season filters, season-aware fixtures and league tables, source standings snapshots, and fixture evidence dossiers are integrated into the existing workspaces. See [setup and API details](docs/RESEARCH_V3_INTEGRATION.md). Migration `0008` is required on other installations.
+
+## v3.3 CSV research update
+
+Authorized football CSV conversion, pending-review standings imports, source coverage, approved snapshot history, and club search are integrated into the current catalogue. See [CSV workflow and migration 0009](docs/CSV_RESEARCH_V3_3.md).

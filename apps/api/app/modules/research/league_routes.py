@@ -14,10 +14,10 @@ def competitions():
                 for c, s in db.execute(select(m.Competition, m.Sport).join(m.Sport, m.Sport.id == m.Competition.sport_id).order_by(m.Competition.name))]
 
 @router.get('/competitions/{competition_id}/top-two/research')
-def top_two(competition_id: str, as_of: datetime | None = None, recent: int = Query(5, ge=1, le=20), since: datetime | None = None):
+def top_two(competition_id: str, as_of: datetime | None = None, recent: int = Query(5, ge=1, le=20), since: datetime | None = None, season_id: str | None = None):
     try:
         with SessionLocal() as db:
-            return top_two_research(db, competition_id, as_of, recent, since)
+            return top_two_research(db, competition_id, as_of, recent, since, season_id)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:

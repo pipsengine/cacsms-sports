@@ -1,7 +1,7 @@
 """Durable, fail-closed acquisition jobs for explicitly configured permitted JSON feeds."""
 import hashlib,json,os,ipaddress,socket
 from datetime import datetime,timedelta,timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse,quote
 from sqlalchemy import select,update,or_
 from app.db import models as m
 from app.db.base import SessionLocal
@@ -12,11 +12,14 @@ def feed_config():
     config=json.loads((os.getenv('SPORTS_SOURCE_FEEDS_JSON') or '{}'))
     if not isinstance(config,dict):raise ValueError('Feed configuration must be an object')
     return config
-def configured_feed(source_id,section):
+def configured_feed(source_id,section,fixture_id=None):
     feed=feed_config().get(source_id,{})
     if not isinstance(feed,dict) or section not in feed:raise ValueError('No administrator-configured feed for this source and section')
     url=feed[section]
     if not isinstance(url,str):raise ValueError('Feed URL must be a string')
+    if '{fixture_id}' in url:
+        if not fixture_id:raise ValueError('Fixture identity required for this feed template')
+        url=url.replace('{fixture_id}',quote(str(fixture_id),safe=''))
     return url
 def validate_feed_url(url,resolve=True):
     parsed=urlparse(url)
@@ -45,7 +48,7 @@ def enqueue(session,source_id,fixture_id,section,period_key):
     if session.get(m.Fixture,fixture_id) is None:raise ValueError('Unknown fixture')
     if section not in ALLOWED_SECTIONS:raise ValueError('Unsupported research section')
     if not isinstance(period_key,str) or not period_key or len(period_key)>100:raise ValueError('Invalid collection period')
-    configured_feed(source_id,section)
+    configured_feed(source_id,section,fixture_id)
     key=hashlib.sha256(f'{source_id}|{fixture_id}|{section}|{period_key}'.encode()).hexdigest()
     existing=session.scalar(select(m.AcquisitionJob).where(m.AcquisitionJob.idempotency_key==key))
     if existing:return {'id':existing.id,'status':existing.status,'duplicate':True}
@@ -78,7 +81,7 @@ def run_job(job_id,fetcher=fetch_json):
         job=session.get(m.AcquisitionJob,job_id)
         source_id,fixture_id,section=job.source_id,job.fixture_id,job.section
     try:
-        url=configured_feed(source_id,section)
+        url=configured_feed(source_id,section,fixture_id)
         payload=fetcher(url)
         if payload.get('fixture_id')!=fixture_id:raise ValueError('Feed fixture identity mismatch')
         if payload.get('section')!=section:raise ValueError('Feed research section mismatch')

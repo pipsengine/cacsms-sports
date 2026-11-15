@@ -16,3 +16,9 @@ def test_no_source_not_enqueued():
  class Session:
   def get(self,model,id):return None
  with pytest.raises(PermissionError):enqueue(Session(),'missing','fixture','standings','2026-11-14')
+
+
+def test_fixture_specific_feed_template(monkeypatch):
+ monkeypatch.setenv('SPORTS_SOURCE_FEEDS_JSON','{"source":{"standings":"https://data.example.org/fixtures/{fixture_id}/standings"}}')
+ assert configured_feed('source','standings','abc/def')=='https://data.example.org/fixtures/abc%2Fdef/standings'
+ with pytest.raises(ValueError):configured_feed('source','standings')

@@ -1,0 +1,40 @@
+{
+  "sport": "Football",
+  "country": "Example Country",
+  "competition": "Example League",
+  "season": "2026/27",
+  "source": "AuthorizedSource",
+  "source_url": "https://example.org/standings",
+  "as_of": "2026-11-01T18:00:00+00:00",
+  "view": "overall",
+  "reviewed_by": "",
+  "entries": [
+    {
+      "club": "Example Club A",
+      "position": 1,
+      "played": 2,
+      "won": 2,
+      "drawn": 0,
+      "lost": 0,
+      "goals_for": 5,
+      "goals_against": 1,
+      "points": 6,
+      "form": "WW"
+    },
+    {
+      "club": "Example Club B",
+      "position": 2,
+      "played": 2,
+      "won": 0,
+      "drawn": 0,
+      "lost": 2,
+      "goals_for": 1,
+      "goals_against": 5,
+      "points": 0,
+      "form": "LL"
+    }
+  ],
+  "season_start": "2026-08-01",
+  "season_end": "2027-07-31",
+  "source_reference": "illustrative-example-not-live-data"
+}

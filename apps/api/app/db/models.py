@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime,timezone
-from sqlalchemy import String,DateTime,ForeignKey,Numeric,Boolean,Text,UniqueConstraint,CheckConstraint,Index,JSON,BigInteger,Integer
-from sqlalchemy.orm import Mapped,mapped_column
+from datetime import date,datetime,timezone
+from sqlalchemy import String,Date,DateTime,ForeignKey,Numeric,Boolean,Text,UniqueConstraint,CheckConstraint,Index,JSON,BigInteger,Integer
+from sqlalchemy.orm import Mapped,mapped_column,relationship
 from app.db.base import Base
 
 def uid():return str(uuid.uuid4())
@@ -20,10 +20,15 @@ class Fixture(Base):
  __tablename__='fixtures';__table_args__=(UniqueConstraint('competition_id','home_name','away_name','kickoff_at',name='canonical_fixture'),{'schema':'fixtures'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
  competition_id:Mapped[str]=mapped_column(ForeignKey('sports.competitions.id'))
+ season_id:Mapped[str|None]=mapped_column(ForeignKey('sports.competition_seasons.id'),index=True)
  home_name:Mapped[str]=mapped_column(String(200))
  away_name:Mapped[str]=mapped_column(String(200))
  kickoff_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),index=True)
  status:Mapped[str]=mapped_column(String(30),default='SCHEDULED')
+ competition:Mapped['Competition']=relationship()
+
+ @property
+ def sport_id(self):return self.competition.sport_id
 class Source(Base):
  __tablename__='providers';__table_args__={'schema':'sources'}
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
@@ -250,3 +255,96 @@ class PipelineStage(Base):
  started_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
  finished_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
  duration_ms:Mapped[int|None]=mapped_column(Integer)
+ next_retry_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ operation_key:Mapped[str|None]=mapped_column(String(64))
+
+
+class CompetitionSeason(Base):
+ __tablename__='competition_seasons'
+ __table_args__=(UniqueConstraint('competition_id','label'),CheckConstraint('end_date >= start_date',name='season_date_order'),{'schema':'sports'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ competition_id:Mapped[str]=mapped_column(ForeignKey('sports.competitions.id'))
+ label:Mapped[str]=mapped_column(String(100))
+ start_date:Mapped[date]=mapped_column(Date)
+ end_date:Mapped[date]=mapped_column(Date)
+ is_current:Mapped[bool]=mapped_column(Boolean,default=False)
+
+class StandingsSnapshot(Base):
+ __tablename__='standings_snapshots'
+ __table_args__=(UniqueConstraint('source_id','content_hash'),Index('ix_standings_lookup','competition_id','season_id','captured_at'),{'schema':'research'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ competition_id:Mapped[str]=mapped_column(ForeignKey('sports.competitions.id'))
+ season_id:Mapped[str]=mapped_column(ForeignKey('sports.competition_seasons.id'))
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ source_url:Mapped[str]=mapped_column(Text)
+ source_reference:Mapped[str]=mapped_column(Text)
+ content_hash:Mapped[str]=mapped_column(String(64))
+ captured_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+ verified_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ official:Mapped[bool]=mapped_column(Boolean,default=False)
+ scope:Mapped[str]=mapped_column(String(16),default='overall')
+ entries:Mapped[list]=mapped_column(JSON)
+
+ review_status:Mapped[str]=mapped_column(String(24),default='VERIFIED')
+ reviewed_by:Mapped[str|None]=mapped_column(String(200))
+ imported_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ provenance:Mapped[dict]=mapped_column(JSON,default=dict)
+
+
+class AutonomousRuntime(Base):
+ __tablename__='autonomous_runtime';__table_args__={'schema':'operations'}
+ id:Mapped[str]=mapped_column(String(36),primary_key=True)
+ owner:Mapped[str|None]=mapped_column(String(36))
+ status:Mapped[str]=mapped_column(String(30),default='STARTING')
+ started_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ finished_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ last_success_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ lease_until:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ next_run_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ cycles:Mapped[int]=mapped_column(Integer,default=0)
+ consecutive_errors:Mapped[int]=mapped_column(Integer,default=0)
+ report:Mapped[dict]=mapped_column(JSON,default=dict)
+
+
+class ProviderSyncState(Base):
+ __tablename__='provider_sync_state';__table_args__={'schema':'operations'}
+ id:Mapped[str]=mapped_column(String(64),primary_key=True)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ last_change:Mapped[str|None]=mapped_column(String(200))
+ next_check_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ last_full_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ failures:Mapped[int]=mapped_column(Integer,default=0)
+ payload:Mapped[dict]=mapped_column(JSON,default=dict)
+
+
+class PipelineEvent(Base):
+ __tablename__='pipeline_events';__table_args__=(UniqueConstraint('event_key'),Index('ix_pipeline_events_due','status','available_at'),{'schema':'operations'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ event_key:Mapped[str]=mapped_column(String(64))
+ fixture_id:Mapped[str|None]=mapped_column(String(36))
+ kind:Mapped[str]=mapped_column(String(80))
+ payload:Mapped[dict]=mapped_column(JSON,default=dict)
+ status:Mapped[str]=mapped_column(String(24),default='PENDING')
+ attempts:Mapped[int]=mapped_column(Integer,default=0)
+ available_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ lease_until:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ completed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ error_code:Mapped[str|None]=mapped_column(String(100))
+
+class StageRecord(Base):
+ __tablename__='stage_records';__table_args__=(UniqueConstraint('operation_key'),Index('ix_stage_records_fixture','fixture_id','kind','created_at'),{'schema':'operations'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ run_id:Mapped[str]=mapped_column(ForeignKey('operations.pipeline_runs.id'))
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'))
+ stage_key:Mapped[str]=mapped_column(String(30))
+ kind:Mapped[str]=mapped_column(String(50))
+ operation_key:Mapped[str]=mapped_column(String(64))
+ status:Mapped[str]=mapped_column(String(30))
+ evidence_ids:Mapped[list]=mapped_column(JSON,default=list)
+ details:Mapped[dict]=mapped_column(JSON,default=dict)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
+# Every supported data mutation publishes a transactional event in the same commit.
+from app.modules.pipeline.events import install as _install_pipeline_events
+_install_pipeline_events()
