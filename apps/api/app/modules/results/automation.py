@@ -1,6 +1,6 @@
 """Fail-closed settlement from previously ingested, authorized final-result observations."""
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select,text
 from app.db import models as m
 from app.modules.results.service import validate_result_payload, settle_outcome, ResultValidationError
 
@@ -28,6 +28,7 @@ def reconcile_observation(db, observation_id):
     source=db.get(m.Source,observation.source_id)
     fixture=db.get(m.Fixture,observation.fixture_id) if observation.fixture_id else None
     outcome=validate_result_observation(observation,source,fixture)
+    if db.bind.dialect.name=='postgresql':db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'),{'key':'result:fixture:'+fixture.id})
     existing_evidence=db.scalar(select(m.ResultEvidence).where(m.ResultEvidence.observation_id==observation.id))
     if existing_evidence:
         result=db.get(m.Result,existing_evidence.result_id)
@@ -51,7 +52,7 @@ def reconcile_observation(db, observation_id):
 
 def reconcile_pending(db,limit=100):
     if not 1<=limit<=500:raise ValueError('limit must be 1..500')
-    candidates=db.scalars(select(m.Observation).where(m.Observation.payload['section'].as_string()=='official_result').order_by(m.Observation.observed_at.desc()).limit(5000)).all()
+    candidates=db.scalars(select(m.Observation).where(m.Observation.payload['section'].as_string()=='official_result',~m.Observation.id.in_(select(m.ResultEvidence.observation_id))).order_by(m.Observation.observed_at.desc()).limit(5000)).all()
     report={'processed':0,'replayed':0,'rejected':0,'errors':[],'mode':'PAPER'}
     for observation in candidates[:limit]:
         try:

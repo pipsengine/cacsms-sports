@@ -36,7 +36,8 @@ def main() -> None:
             s['next'] = now + s['every']
             try:
                 result = s['task'].apply().get()
-                log.info('%s -> %s', s['name'], result)
+                if not isinstance(result,dict) or result.get('status')!='NOT_DUE_OR_ALREADY_RUNNING':
+                    log.info('%s -> %s', s['name'], result)
             except Exception as exc:  # keep the loop alive; surface the failure
                 log.error('%s failed: %s: %s', s['name'], type(exc).__name__, exc)
         time.sleep(1.0)

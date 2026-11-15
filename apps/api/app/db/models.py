@@ -345,6 +345,14 @@ class StageRecord(Base):
  details:Mapped[dict]=mapped_column(JSON,default=dict)
  created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+
+
+class MarketEvidence(Base):
+ __tablename__='odds_evidence';__table_args__={'schema':'markets'}
+ odds_id:Mapped[str]=mapped_column(ForeignKey('markets.odds_snapshots.id'),primary_key=True)
+ observation_id:Mapped[str]=mapped_column(ForeignKey('sources.observations.id'))
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+
 # Every supported data mutation publishes a transactional event in the same commit.
 from app.modules.pipeline.events import install as _install_pipeline_events
 _install_pipeline_events()

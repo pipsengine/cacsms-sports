@@ -9,13 +9,14 @@ from app.db import models as m
 app=FastAPI(title='CACSMS Sport AI 2.0',version='2.0.0',description='PAPER-only evidence-first sports intelligence API')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=False,allow_methods=['GET'],allow_headers=['*'])
 PREFIX='/api/v1/sports'
-TABLES={'fixtures':m.Fixture,'research':m.Research,'predictions':m.Prediction,'markets/odds':m.Odds,'qualification/decisions':m.Qualification,'opportunities':m.Qualification,'tickets':m.Ticket,'betslips':m.Betslip,'booking-codes':m.BookingCode,'results':m.Result,'settlements':m.Settlement,'models':m.ModelVersion,'sources':m.Source,'browser/sessions':None,'missions':m.Mission,'incidents':m.Incident,'audit/events':m.AuditEvent,'statistics':None,'operations/live':m.Mission}
+TABLES={'fixtures':m.Fixture,'features':m.Feature,'research':m.Research,'predictions':m.Prediction,'markets/odds':m.Odds,'qualification/decisions':m.Qualification,'opportunities':m.Qualification,'tickets':m.Ticket,'betslips':m.Betslip,'booking-codes':m.BookingCode,'results':m.Result,'settlements':m.Settlement,'models':m.ModelVersion,'sources':m.Source,'browser/sessions':None,'missions':m.Mission,'incidents':m.Incident,'audit/events':m.AuditEvent,'statistics':None,'operations/live':m.StageRecord}
 def rows_for(key):
  model=TABLES[key]
  if model is None:return []
  with SessionLocal() as s:
   q=select(model)
   if key=='opportunities':q=q.where(m.Qualification.decision=='QUALIFIED')
+  if key=='operations/live':q=q.where(m.StageRecord.kind=='CONTINUOUS_PAPER_MONITOR').order_by(m.StageRecord.created_at.desc())
   if key=='incidents':q=q.where(m.Incident.status=='OPEN')
   return [{c.name:getattr(obj,c.name) for c in obj.__table__.columns} for obj in s.scalars(q.limit(100)).all()]
 @app.get('/health')
@@ -481,6 +482,9 @@ app.include_router(research_catalog_router)
 
 from app.modules.autonomy.routes import router as autonomy_router
 app.include_router(autonomy_router)
+
+from app.modules.pipeline.context import router as workflow_context_router
+app.include_router(workflow_context_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

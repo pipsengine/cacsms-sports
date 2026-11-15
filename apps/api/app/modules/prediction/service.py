@@ -83,6 +83,11 @@ def fit_challenger(examples):
 
 def predict_from_artifact(artifact,features):
     if set(features)!=set(FEATURE_NAMES):raise ValueError('Feature contract mismatch')
+    for key in ('means','scales','coefficients'):
+        values=artifact.get(key)
+        if not isinstance(values,list) or len(values)!=len(FEATURE_NAMES) or any(type(v) not in (int,float) or not math.isfinite(v) for v in values):raise ValueError('Invalid model artifact array: '+key)
+    if any(v<=0 for v in artifact['scales']):raise ValueError('Model scales must be positive')
+    if type(artifact.get('intercept')) not in (int,float) or not math.isfinite(artifact['intercept']):raise ValueError('Invalid model intercept')
     z=[]
     for i,key in enumerate(FEATURE_NAMES):
         value=float(features[key])

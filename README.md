@@ -121,3 +121,7 @@ Shared sport/country/league/season filters, season-aware fixtures and league tab
 ## v3.3 CSV research update
 
 Authorized football CSV conversion, pending-review standings imports, source coverage, approved snapshot history, and club search are integrated into the current catalogue. See [CSV workflow and migration 0009](docs/CSV_RESEARCH_V3_3.md).
+
+## Twelve-stage autonomous PAPER pipeline
+
+The dashboard now links all twelve stage cards to their assigned workspaces with shared fixture/run context. One leased, event-driven backend runner performs actual operations, stores evidence receipts and retries, and continuously monitors paper activity. See [operation contracts, configuration, tests and live limitations](docs/AUTONOMOUS_PIPELINE.md). Migrations `0010` and `0011` are required on other installations.

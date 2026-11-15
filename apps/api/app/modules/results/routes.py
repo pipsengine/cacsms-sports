@@ -2,7 +2,7 @@
 from datetime import datetime,timezone
 from fastapi import APIRouter,HTTPException,Header
 from pydantic import BaseModel,Field
-from sqlalchemy import select,func
+from sqlalchemy import select,func,text
 from sqlalchemy.exc import IntegrityError
 from app.db.base import SessionLocal
 from app.db import models as m
@@ -43,6 +43,7 @@ def ingest_official_result(item:OfficialResultIn,x_admin_token:str|None=Header(d
    raise HTTPException(422,'Evidence observation must match source and fixture')
   if observation.observed_at>item.verified_at:raise HTTPException(422,'Evidence cannot postdate result verification')
   if item.verified_at<fixture.kickoff_at:raise HTTPException(422,'Result cannot precede kickoff')
+  if db.bind.dialect.name=='postgresql':db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'),{'key':'result:fixture:'+fixture.id})
   previous=db.scalars(select(m.Result).where(m.Result.fixture_id==fixture.id).order_by(m.Result.version.desc()).with_for_update()).first()
   if previous and previous.outcome==clean:return {'id':previous.id,'version':previous.version,'replayed':True,'mode':'PAPER'}
   result=m.Result(fixture_id=fixture.id,version=1+(previous.version if previous else 0),outcome=clean,verified_at=item.verified_at)

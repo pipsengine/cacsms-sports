@@ -1,6 +1,6 @@
 """Season-scoped research views adapted from the supplied v3.0 module."""
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select,case
 from app.db import models as m
 from app.modules.research.league import compute_table, verified_matches, utc
 
@@ -65,7 +65,8 @@ def fixtures(db, competition_id, season_id=None, limit=100):
     query = select(m.Fixture).where(m.Fixture.competition_id == competition_id)
     if season_id:
         query = query.where(m.Fixture.season_id == season_id)
-    rows = db.scalars(query.order_by(m.Fixture.kickoff_at.desc(), m.Fixture.id).limit(limit)).all()
+    now=datetime.now(timezone.utc)
+    rows = db.scalars(query.order_by(case((m.Fixture.kickoff_at>=now,0),else_=1),case((m.Fixture.kickoff_at>=now,m.Fixture.kickoff_at),else_=None).asc(),m.Fixture.kickoff_at.desc(), m.Fixture.id).limit(limit)).all()
     scores = {g['id']: g for g in verified_matches(db, competition_id, datetime.now(timezone.utc), season_id=season_id)}
     return [dict(id=f.id, competition_id=f.competition_id, season_id=f.season_id, kickoff=f.kickoff_at,
                  home=f.home_name, away=f.away_name, status='FINAL' if f.id in scores else f.status,

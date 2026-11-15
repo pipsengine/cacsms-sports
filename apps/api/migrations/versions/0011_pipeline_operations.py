@@ -14,8 +14,10 @@ def upgrade():
   if column.name not in columns:op.add_column('pipeline_stages',column,schema='operations')
  m.PipelineEvent.__table__.create(bind,checkfirst=True)
  m.StageRecord.__table__.create(bind,checkfirst=True)
+ m.MarketEvidence.__table__.create(bind,checkfirst=True)
 
 def downgrade():
+ m.MarketEvidence.__table__.drop(op.get_bind(),checkfirst=True)
  m.StageRecord.__table__.drop(op.get_bind(),checkfirst=True)
  m.PipelineEvent.__table__.drop(op.get_bind(),checkfirst=True)
  op.drop_column('pipeline_stages','operation_key',schema='operations')

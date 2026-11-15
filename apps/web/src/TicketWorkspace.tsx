@@ -1,8 +1,9 @@
+import {useBackendRefresh} from './LiveUpdates';
 import React,{useState} from 'react';
 import {RefreshCcw,ShieldCheck,TicketCheck,AlertTriangle} from 'lucide-react';
 type Row=Record<string,unknown>;
 const API='/api/v1/sports/';
-function useRecords(resource:string){const[rows,setRows]=useState<Row[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState('');const[nonce,setNonce]=useState(0);React.useEffect(()=>{let ok=true;setLoading(true);fetch(API+resource).then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()}).then(data=>{if(ok){setRows(Array.isArray(data)?data:[]);setError('')}}).catch(e=>{if(ok)setError(String(e))}).finally(()=>{if(ok)setLoading(false)});return()=>{ok=false}},[resource,nonce]);return{rows,loading,error,reload:()=>setNonce(n=>n+1)}}
+function useRecords(resource:string){const[rows,setRows]=useState<Row[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState('');const[nonce,setNonce]=useState(0);useBackendRefresh(setNonce);React.useEffect(()=>{let ok=true;setLoading(true);fetch(API+resource).then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()}).then(data=>{if(ok){setRows(Array.isArray(data)?data:[]);setError('')}}).catch(e=>{if(ok)setError(String(e))}).finally(()=>{if(ok)setLoading(false)});return()=>{ok=false}},[resource,nonce]);return{rows,loading,error,reload:()=>setNonce(n=>n+1)}}
 export function TicketWorkspace({view}:{view:'tickets'|'betslip'|'booking-codes'}){
  const resource=view==='tickets'?'tickets':view==='betslip'?'betslips':'booking-codes';const{rows,loading,error,reload}=useRecords(resource);
  const[active,setActive]=useState<Row|null>(null);const title=view==='tickets'?'Paper ticket register':view==='betslip'?'Betslip verification':'External booking codes';

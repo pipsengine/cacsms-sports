@@ -1,10 +1,12 @@
+import {useBackendRefresh} from './LiveUpdates';
 import React,{useEffect,useMemo,useState} from 'react';
 import {AlertTriangle,Database,RefreshCcw,Search,ShieldCheck,X} from 'lucide-react';
 type Row=Record<string,unknown>;
-const endpoints={sources:[['Sources','sources'],['Source health','sources/health'],['Acquisition jobs','acquisition/jobs']], 'live-operations':[['Live operations','operations/live'],['Acquisition jobs','acquisition/jobs'],['Incidents','incidents'],['Audit events','audit/events']]} as const;
+const endpoints={sources:[['Sources','sources'],['Source health','sources/health'],['Acquisition jobs','acquisition/jobs']], 'live-operations':[['Live operations','operations/live'],['Pipeline events','pipeline/events'],['Acquisition jobs','acquisition/jobs'],['Incidents','incidents'],['Audit events','audit/events']]} as const;
 function safe(k:string,v:unknown):string {if(/password|secret|token|credential|api.?key|authorization|cookie|session/i.test(k))return '[REDACTED]';if(v==null)return '—';if(typeof v==='object')return '[Structured evidence — inspect at authorized backend]';return String(v)}
 export function SourceOperationsWorkspace({page}:{page:'sources'|'live-operations'}){
  const choices=endpoints[page];const [dataset,setDataset]=useState<string>(choices[0][1]);const [rows,setRows]=useState<Row[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);const [query,setQuery]=useState('');const [selected,setSelected]=useState<Row|null>(null);
+ useBackendRefresh(setRefresh);
  useEffect(()=>{setDataset(endpoints[page][0][1]);setQuery('');setSelected(null)},[page]);
  useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');fetch('/api/v1/sports/'+dataset,{signal:controller.signal,credentials:'same-origin'}).then(async response=>{if(!response.ok)throw Error('HTTP '+response.status);return response.json()}).then(data=>{if(!Array.isArray(data))throw Error('Unexpected response: expected an array');setRows(data)}).catch(e=>{if(!controller.signal.aborted){setRows([]);setError(String(e))}}).finally(()=>{if(!controller.signal.aborted)setLoading(false)});return()=>controller.abort()},[dataset,refresh]);
  const cols=useMemo(()=>Array.from(new Set(rows.flatMap(Object.keys))).filter(k=>!/(password|secret|token|credential|api.?key|authorization|cookie|session)/i.test(k)).slice(0,7),[rows]);

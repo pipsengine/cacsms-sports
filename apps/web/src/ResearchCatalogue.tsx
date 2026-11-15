@@ -1,3 +1,4 @@
+import {useBackendRefresh} from './LiveUpdates';
 import {StandingsGovernance} from './StandingsGovernance';
 import React,{createContext,useContext,useEffect,useMemo,useState} from 'react';
 import {CalendarDays,Database,Filter,RefreshCcw,ShieldCheck} from 'lucide-react';
@@ -12,6 +13,7 @@ const Scope=createContext<ScopeContext|null>(null);
 const initial:Selection={sport:'',country:'',league:'',season:'',fixture:'',asOf:''};
 export function ResearchScopeProvider({children}:{children:React.ReactNode}){
  const[selection,setSelection]=useState<Selection>(initial),[revision,setRevision]=useState(0);
+ useBackendRefresh(setRevision);
  const change=(key:keyof Selection,value:string)=>setSelection(s=>{
   const next={...s,[key]:value};
   if(key==='sport'){next.country='';next.league='';next.season='';next.fixture=''}

@@ -51,7 +51,10 @@ def enqueue(session,source_id,fixture_id,section,period_key):
     configured_feed(source_id,section,fixture_id)
     key=hashlib.sha256(f'{source_id}|{fixture_id}|{section}|{period_key}'.encode()).hexdigest()
     existing=session.scalar(select(m.AcquisitionJob).where(m.AcquisitionJob.idempotency_key==key))
-    if existing:return {'id':existing.id,'status':existing.status,'duplicate':True}
+    if existing:
+        if existing.status=='FAILED' and existing.error_code=='SOURCE_REVOKED':
+            existing.status='PENDING';existing.attempts=0;existing.next_run_at=utcnow();existing.error_code=None
+        return {'id':existing.id,'status':existing.status,'duplicate':True}
     job=m.AcquisitionJob(source_id=source_id,fixture_id=fixture_id,section=section,idempotency_key=key)
     session.add(job);session.flush()
     session.add(m.AuditEvent(actor='scheduler',action='acquisition.enqueued',correlation_id=job.id,payload={'section':section,'mode':'PAPER'}))
@@ -80,6 +83,11 @@ def run_job(job_id,fetcher=fetch_json):
         if not claim(session,job_id):return {'id':job_id,'status':'NOT_CLAIMED'}
         job=session.get(m.AcquisitionJob,job_id)
         source_id,fixture_id,section=job.source_id,job.fixture_id,job.section
+        source=session.get(m.Source,source_id)
+        if source is None or not source.enabled or source.permission!='AUTHORIZED':
+            job.status='FAILED';job.error_code='SOURCE_REVOKED';job.lease_until=None;job.updated_at=utcnow()
+            session.add(m.AuditEvent(actor='acquisition-worker',action='acquisition.source_revoked',correlation_id=job.id,payload={'source_id':source_id}))
+            return {'id':job_id,'status':'REJECTED','error_code':'SOURCE_REVOKED'}
     try:
         url=configured_feed(source_id,section,fixture_id)
         payload=fetcher(url)
@@ -88,7 +96,7 @@ def run_job(job_id,fetcher=fetch_json):
         with SessionLocal.begin() as session:
             job=session.get(m.AcquisitionJob,job_id)
             if job.status!='RUNNING':return {'id':job_id,'status':'STALE'}
-            result=ingest_observation(session,source_id=source_id,fixture_id=fixture_id,section=section,source_url=url,observed_at=utcnow(),payload=payload.get('data') if section=='official_result' else payload)
+            result=ingest_observation(session,source_id=source_id,fixture_id=fixture_id,section=section,source_url=url,observed_at=utcnow(),payload=payload.get('data'))
             job.observation_id=result['id'];job.status='COMPLETED';job.lease_until=None;job.updated_at=utcnow();job.error_code=None
             session.add(m.AuditEvent(actor='acquisition-worker',action='acquisition.completed',correlation_id=job_id,payload={'observation_id':result['id'],'mode':'PAPER'}))
         return {'id':job_id,'status':'COMPLETED','observation_id':result['id']}

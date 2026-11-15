@@ -1,3 +1,4 @@
+import {useBackendRefresh} from './LiveUpdates';
 import React,{useEffect,useMemo,useState} from 'react';
 import {Activity,AlertTriangle,ArrowUpRight,BarChart3,CheckCircle2,Clock3,Database,Filter,RefreshCcw,Search,ShieldCheck,X} from 'lucide-react';
 
@@ -19,6 +20,7 @@ function value(row:RecordRow,fields:string[]){for(const field of fields){if(row[
 function statusColor(text:string){const s=text.toLowerCase();return /verified|qualified|approved|passed|active|complete/.test(s)?'good':/fail|reject|block|invalid|error/.test(s)?'bad':/pending|waiting|review|stale/.test(s)?'warn':'neutral'}
 export function IntelligenceMarketWorkspace({page}:{page:Domain}){
  const spec=specs[page];const [resource,setResource]=useState(spec.primary);const [rows,setRows]=useState<RecordRow[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);const [query,setQuery]=useState('');const [filters,setFilters]=useState<Record<string,string>>({});const [selected,setSelected]=useState<RecordRow|null>(null);
+ useBackendRefresh(setRefresh);
  useEffect(()=>{setResource(spec.primary);setQuery('');setFilters({});setSelected(null)},[page]);
  useEffect(()=>{let live=true;setLoading(true);setError('');fetch(API+resource).then(async r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()}).then(data=>{if(!live)return;if(!Array.isArray(data)){setRows([]);setError('Unexpected API response: expected an array of records.')}else setRows(data)}).catch(e=>{if(live){setRows([]);setError(String(e))}}).finally(()=>{if(live)setLoading(false)});return()=>{live=false}},[resource,refresh]);
  const available=useMemo(()=>spec.filters.filter(k=>rows.some(r=>r[k]!=null)),[rows,page]);

@@ -1,3 +1,4 @@
+import {useBackendRefresh} from './LiveUpdates';
 import React,{useEffect,useMemo,useState} from 'react';
 import {AlertTriangle,RefreshCcw,Search,ShieldCheck,X} from 'lucide-react';
 type Row=Record<string,unknown>;
@@ -7,6 +8,7 @@ const descriptions:Record<string,string>={accumulator:'Multi-selection optimizat
 function display(v:unknown){return v==null?'—':typeof v==='object'?JSON.stringify(v):String(v)}
 export function ProgrammeWorkspace({programme}:{programme:string}){
  const[config,setConfig]=useState<Programme|null>(null),[runs,setRuns]=useState<Row[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[tick,setTick]=useState(0),[query,setQuery]=useState(''),[selected,setSelected]=useState<Row|null>(null);
+ useBackendRefresh(setTick);
  useEffect(()=>{let active=true;setLoading(true);setError('');Promise.all([fetch('/api/v1/sports/programmes'),fetch('/api/v1/sports/programmes/'+encodeURIComponent(programme)+'/runs')]).then(async responses=>{for(const response of responses)if(!response.ok)throw Error('HTTP '+response.status);return Promise.all(responses.map(r=>r.json()))}).then(([all,records])=>{if(!active)return;setConfig((all as Programme[]).find(p=>p.key===programme)||null);setRuns(Array.isArray(records)?records:[])}).catch(e=>{if(active){setError(String(e));setConfig(null);setRuns([])}}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[programme,tick]);
  const filtered=useMemo(()=>runs.filter(r=>JSON.stringify(r).toLowerCase().includes(query.toLowerCase())),[runs,query]);
  const statusCount=(value:string)=>runs.filter(r=>String(r.status).toUpperCase()===value).length;

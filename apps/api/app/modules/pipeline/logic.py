@@ -6,7 +6,7 @@ STAGES=(
  ('research','Research','dossiers'),('analyse','Analyse','features'),
  ('predict','Predict','predictions'),('evaluate','Evaluate','odds'),
  ('qualify','Qualify','qualification'),('allocate','Allocate','strategy'),
- ('prepare','Prepare','ticket'),('verify','Verify','booking_code'),
+ ('prepare','Prepare','ticket'),('verify','Verify','paper_betslip'),
  ('monitor','Monitor','monitoring'),('reconcile','Reconcile','settlement'))
 STATUS_COLORS={'PENDING':'slate','RUNNING':'blue','COMPLETED':'green','VERIFIED':'green','WAITING_FOR_DATA':'amber','RETRY_SCHEDULED':'amber','BLOCKED':'red','FAILED':'red','REJECTED':'red','EXPIRED':'gray'}
 TERMINAL={'BLOCKED','FAILED','REJECTED','EXPIRED'}

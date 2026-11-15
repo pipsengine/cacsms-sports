@@ -3,7 +3,7 @@ from datetime import datetime,timezone
 from time import monotonic
 from fastapi import APIRouter,Header,HTTPException
 from pydantic import BaseModel,Field
-from sqlalchemy import select
+from sqlalchemy import select,text
 from sqlalchemy.exc import IntegrityError,SQLAlchemyError
 from app.db.base import SessionLocal
 from app.db import models as m
@@ -12,7 +12,7 @@ from app.core.config import EXECUTION_MODE
 import os
 from secrets import compare_digest
 def admin_guard(token):
- expected=os.getenv("ADMIN_API_TOKEN","")
+ expected=os.getenv("SPORTS_ADMIN_TOKEN","") or os.getenv("ADMIN_API_TOKEN","")
  if not expected or not token or not compare_digest(token,expected):raise HTTPException(403,"Administrator authorization required")
 router=APIRouter(prefix='/api/v1/sports/pipeline',tags=['Pipeline'])
 class CreateRun(BaseModel):
@@ -20,11 +20,16 @@ class CreateRun(BaseModel):
  fixture_id:str|None=None
 class EvidenceUpdate(BaseModel):
  context:dict=Field(default_factory=dict)
+def stage_href(stage,rid):
+ from urllib.parse import urlencode
+ from app.modules.pipeline.runner import PAGES
+ return '/sports/'+PAGES[stage.stage_key]+'?'+urlencode({'run_id':rid,'stage':stage.stage_key})
+
 def serialize_stage(s):
- return {'id':s.id,'position':s.position,'stage_key':s.stage_key,'name':dict((k,n) for k,n,_ in STAGES)[s.stage_key],'status':s.status,'color':STATUS_COLORS.get(s.status,'gray'),'input':s.input_payload,'output':s.output_payload,'evidence_ids':s.evidence_ids,'error':s.error,'retry_count':s.retry_count,'started_at':s.started_at,'finished_at':s.finished_at,'duration_ms':s.duration_ms}
+ return {'id':s.id,'position':s.position,'stage_key':s.stage_key,'name':dict((k,n) for k,n,_ in STAGES)[s.stage_key],'status':s.status,'color':STATUS_COLORS.get(s.status,'gray'),'input':s.input_payload,'output':s.output_payload,'evidence_ids':s.evidence_ids,'error':s.error,'retry_count':s.retry_count,'started_at':s.started_at,'finished_at':s.finished_at,'duration_ms':s.duration_ms,'next_retry_at':s.next_retry_at,'href':stage_href(s,rid=s.run_id)}
 def serialize_run(db,r):
  stages=db.scalars(select(m.PipelineStage).where(m.PipelineStage.run_id==r.id).order_by(m.PipelineStage.position)).all()
- return {'id':r.id,'fixture_id':r.fixture_id,'mode':r.mode,'status':r.status,'created_at':r.created_at,'updated_at':r.updated_at,'stages':[serialize_stage(s) for s in stages]}
+ return {'id':r.id,'fixture_id':r.fixture_id,'mode':r.mode,'status':r.status,'created_at':r.created_at,'updated_at':r.updated_at,'stages':[{**serialize_stage(s),'href':serialize_stage(s)['href']+('&fixture_id='+r.fixture_id if r.fixture_id else '')} for s in stages],'progress':sum(s.status=='VERIFIED' for s in stages)/12,'verified_stages':sum(s.status=='VERIFIED' for s in stages),'fixture_count':1 if r.fixture_id else 0}
 @router.get('/definitions')
 def definitions():return {'stages':[{'key':k,'name':n,'evidence_type':e} for k,n,e in STAGES],'colors':STATUS_COLORS,'mode':'PAPER'}
 @router.get('/runs')
@@ -42,6 +47,11 @@ def create_run(item:CreateRun,x_admin_token:str|None=Header(None)):
  admin_guard(x_admin_token)
  if EXECUTION_MODE!='PAPER':raise HTTPException(403,'PAPER-only pipeline')
  with SessionLocal.begin() as db:
+  if item.fixture_id:
+   if db.get(m.Fixture,item.fixture_id) is None:raise HTTPException(404,'Fixture not found')
+   if db.bind.dialect.name=='postgresql':db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'),{'key':'pipeline:fixture:'+item.fixture_id})
+   existing=db.scalar(select(m.PipelineRun).where(m.PipelineRun.fixture_id==item.fixture_id,m.PipelineRun.mode=='PAPER').order_by(m.PipelineRun.created_at).limit(1))
+   if existing:return serialize_run(db,existing)
   r=db.scalar(select(m.PipelineRun).where(m.PipelineRun.idempotency_key==item.idempotency_key))
   if r:return serialize_run(db,r)
   r=m.PipelineRun(idempotency_key=item.idempotency_key,fixture_id=item.fixture_id,status='PENDING',mode='PAPER',context={})
@@ -105,7 +115,6 @@ def drive(run_id:str,x_admin_token:str|None=Header(None)):
   if not run:raise HTTPException(404,'Unknown run')
   if run.mode!='PAPER':raise HTTPException(403,'PAPER-only run required')
   report=connect_engines(db,run)
-  execute_run(db,run)
   db.add(m.AuditEvent(actor='pipeline-driver',action='pipeline.engines_connected',correlation_id=run.id,payload=report))
   db.flush()
   result={'run':serialize_run(db,run),'engine_report':report}
@@ -123,3 +132,13 @@ def market_monitor(fixture_id:str):
  with SessionLocal() as db:
   if db.get(m.Fixture,fixture_id) is None:raise HTTPException(404,'Unknown fixture')
   return inspect_market(db,fixture_id)
+
+
+@router.get('/events')
+def events(fixture_id:str|None=None,status:str|None=None,limit:int=100):
+ with SessionLocal() as db:
+  query=select(m.PipelineEvent)
+  if fixture_id:query=query.where(m.PipelineEvent.fixture_id==fixture_id)
+  if status:query=query.where(m.PipelineEvent.status==status)
+  rows=db.scalars(query.order_by(m.PipelineEvent.created_at.desc()).limit(min(max(limit,1),500))).all()
+  return [{'id':row.id,'fixture_id':row.fixture_id,'kind':row.kind,'status':row.status,'attempts':row.attempts,'available_at':row.available_at,'lease_until':row.lease_until,'completed_at':row.completed_at,'error_code':row.error_code} for row in rows]

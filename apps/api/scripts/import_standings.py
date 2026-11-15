@@ -16,7 +16,8 @@ def main():
     if args.dry_run:
         print(json.dumps(import_document(None,doc,approve=args.approve,dry_run=True),default=str,indent=2));return
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3]/'.env',override=False)
+    local_env=next((parent/'.env' for parent in Path(__file__).resolve().parents if (parent/'.env').is_file()),None)
+    if local_env is not None:load_dotenv(local_env,override=False)
     from app.db.base import SessionLocal
     with SessionLocal.begin() as db:
         result=import_document(db,doc,approve=args.approve)

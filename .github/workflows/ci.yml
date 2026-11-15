@@ -40,11 +40,40 @@ jobs:
           alembic upgrade head
           alembic current
           alembic upgrade head
-      - name: Unit tests
+      - name: Unit and full PostgreSQL workflow tests
         env:
           PYTHONPATH: apps/api:.
           DATABASE_URL: postgresql+psycopg://sports:sports@localhost:5432/sports_ai
-        run: pytest -q apps/api/tests
+          SPORTS_TEST_DATABASE_URL: postgresql+psycopg://sports:sports@localhost:5432/sports_ai
+          SPORTS_OPENLIGADB_ENABLED: "0"
+        run: pytest -q apps/api/tests tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser acceptance dependencies
+        run: |
+          npm --prefix apps/web ci --no-audit --no-fund
+          python -m playwright install --with-deps chromium
+      - name: Verify all workspace routes and stage destinations
+        env:
+          PYTHONPATH: apps/api:.
+          DATABASE_URL: postgresql+psycopg://sports:sports@localhost:5432/sports_ai
+          SPORTS_OPENLIGADB_ENABLED: "0"
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/cacsms-api.log 2>&1 &
+          npm --prefix apps/web run dev -- --host 127.0.0.1 > /tmp/cacsms-web.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8000/health && curl --fail --silent http://localhost:5173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          python scripts/verify_workflow_ui.py
+      - name: Browser acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-browser-checks
+          path: artifacts/pipeline-dashboard-*.png
+          if-no-files-found: ignore
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -56,7 +85,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install frontend dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Typecheck and build
         run: npm run build
   docker:

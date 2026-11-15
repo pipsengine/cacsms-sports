@@ -23,7 +23,8 @@ def seed(factory,at):
   db.add(m.Sport(id='sport',name='Football'));db.flush()
   db.add(m.Competition(id='league',sport_id='sport',name='League',country='England'));db.flush()
   db.add(m.Source(id='source',name='Licensed source',enabled=True,permission='AUTHORIZED'))
-  db.add(m.Fixture(id='fixture',competition_id='league',home_name='Home',away_name='Away',kickoff_at=at+timedelta(hours=2)))
+  db.add(m.Fixture(id='fixture',competition_id='league',home_name='Home',away_name='Away',kickoff_at=at+timedelta(hours=2)));db.flush()
+  db.add(m.Observation(source_id='source',fixture_id='fixture',source_url='https://licensed.example/fixture',content_hash='s'*64,observed_at=at-timedelta(seconds=1),payload={'source_reference':'seed-fixture'}))
 
 
 def test_runtime_lease_recovery_and_stale_heartbeat(factory):
@@ -63,7 +64,7 @@ def test_runs_are_created_once_and_advance_without_browser(factory,monkeypatch):
  with factory() as db:
   run=db.scalar(select(m.PipelineRun))
   stages=db.scalars(select(m.PipelineStage).order_by(m.PipelineStage.position)).all()
-  assert len(stages)==12 and stages[0].status=='VERIFIED' and stages[1].status=='WAITING_FOR_DATA'
+  assert len(stages)==12 and stages[0].status=='VERIFIED' and stages[1].status=='VERIFIED' and stages[2].status=='WAITING_FOR_DATA'
   assert run.mode=='PAPER' and run.status=='WAITING_FOR_DATA'
   assert db.get(m.Fixture,'fixture').sport_id=='sport'
  monkeypatch.setattr(service,'now',lambda:at+timedelta(seconds=31))
@@ -80,7 +81,7 @@ def test_discovery_authorization_validation_and_idempotency(factory,monkeypatch)
  assert discovery.collect(factory,lambda url:payload)['fixtures']==1
  with factory() as db:
   assert db.scalar(select(func.count()).select_from(m.Fixture))==2
-  assert db.scalar(select(func.count()).select_from(m.Observation))==1
+  assert db.scalar(select(func.count()).select_from(m.Observation))==2
  with factory.begin() as db:db.get(m.Source,'source').enabled=False
  def forbidden(url):raise AssertionError('Unauthorized source must not be fetched')
  result=discovery.collect(factory,forbidden)
@@ -136,3 +137,31 @@ def test_open_data_failure_backoff_preserves_controller(factory,monkeypatch):
  with factory() as db:
   cached=db.scalar(select(m.ProviderSyncState))
   assert cached.failures==1 and cached.next_check_at is not None
+
+
+def test_event_fanout_exceeds_one_batch_without_losing_work(factory,monkeypatch):
+ at=datetime.now(timezone.utc);seed(factory,at)
+ monkeypatch.setenv('SPORTS_OPENLIGADB_ENABLED','0')
+ monkeypatch.setenv('SPORTS_DISCOVERY_FEEDS_JSON','{}')
+ with factory.begin() as db:
+  for i in range(39):db.add(m.Fixture(id='batch-'+str(i),competition_id='league',home_name='Batch home '+str(i),away_name='Batch away '+str(i),kickoff_at=at+timedelta(hours=1)))
+ first=service.cycle(factory)
+ monkeypatch.setattr(service,'now',lambda:at+timedelta(seconds=10))
+ second=service.cycle(factory)
+ assert first['processed_runs']==25
+ assert second['processed_runs']==25
+ with factory() as db:
+  assert db.scalar(select(func.count()).select_from(m.PipelineRun))==40
+  assert db.scalar(select(func.count()).select_from(m.PipelineEvent).where(m.PipelineEvent.status=='PENDING'))==0
+
+
+def test_revoked_acquisition_source_is_not_fetched(factory,monkeypatch):
+ from app.modules.acquisition import jobs
+ at=datetime.now(timezone.utc);seed(factory,at)
+ with factory.begin() as db:
+  db.get(m.Source,'source').enabled=False
+  db.add(m.AcquisitionJob(id='revoked-job',source_id='source',fixture_id='fixture',section='recent_form',idempotency_key='revoked-key',status='PENDING',next_run_at=at-timedelta(seconds=1)))
+ monkeypatch.setattr(jobs,'SessionLocal',factory)
+ def forbidden(url):raise AssertionError('Revoked source must not receive a request')
+ result=jobs.run_job('revoked-job',fetcher=forbidden)
+ assert result['status']=='REJECTED' and result['error_code']=='SOURCE_REVOKED'

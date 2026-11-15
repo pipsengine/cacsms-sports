@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from app.db import models as m
 
-ALLOWED_SECTIONS=frozenset(('standings','recent_form','head_to_head','team_news','lineups','injuries','match_statistics','official_result'))
+ALLOWED_SECTIONS=frozenset(('standings','recent_form','head_to_head','team_news','lineups','injuries','match_statistics','official_result','market_odds'))
 
 def utc(value):
     if not isinstance(value,datetime) or value.tzinfo is None:
