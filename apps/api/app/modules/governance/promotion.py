@@ -63,6 +63,8 @@ def promote_model(db,model_id,*,actor,at=None):
   return {'model_id':model.id,'status':model.status,'promoted':False,'reasons':reasons,'evidence':evidence}
  retired=[]
  for active in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==model.sport_id,m.ModelVersion.status=='ACTIVE',m.ModelVersion.id!=model.id)):
+  from app.modules.prediction.market_model import model_type
+  if model_type(active)!=model_type(model):continue  # a logistic promotion never retires the market model
   active.status='RETIRED';retired.append(active.id)
  model.validation={**artifact,'approved':True,'out_of_sample':True,'calibrated':True,'calibration_verified':True,
                    'calibration_error':round(evidence['calibration_error'],6),

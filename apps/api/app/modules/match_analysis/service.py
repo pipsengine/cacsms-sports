@@ -69,9 +69,9 @@ def latest_feature(db,fixture_id,cutoff):
 
 
 def probabilities(db,fixture_id,cutoff):
-    rows=db.execute(select(m.Prediction,m.ModelVersion).join(m.ModelVersion,m.Prediction.model_id==m.ModelVersion.id)
-                    .where(m.Prediction.fixture_id==fixture_id,m.Prediction.market_key=='1X2',m.Prediction.predicted_at<=cutoff,
-                           m.ModelVersion.status=='ACTIVE').order_by(m.Prediction.predicted_at.desc())).all()
+    from app.modules.market_scanner.service import forecasts
+    # Same single-model-per-market selection as the scanner, so Home/Draw/Away come from one distribution.
+    rows=sorted(((p,mv) for (mk,_),(p,mv) in forecasts(db,fixture_id,cutoff).items() if mk=='1X2'),key=lambda x:x[0].predicted_at,reverse=True)
     out=dict(home=None,draw=None,away=None,model=None,predicted_at=None)
     for prediction,model in rows:
         key=str(prediction.outcome_key).lower()

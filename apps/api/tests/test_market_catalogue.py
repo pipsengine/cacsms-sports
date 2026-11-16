@@ -117,6 +117,9 @@ def test_scans_are_throttled_unless_odds_change(store):
         first=cat.scan(db,'fixture',at=now)
         assert cat.scan(db,'fixture',at=now+timedelta(minutes=1)).id==first.id
         assert cat.scan(db,'fixture',at=now+timedelta(minutes=1),force=True).id!=first.id
+        db.add(m.ModelVersion(id='second',sport_id='sport',name='Other',version='1',status='ACTIVE',validation=APPROVED));db.flush()
+        db.add(m.Prediction(fixture_id='fixture',feature_id='feature',model_id='second',market_key='BTTS',outcome_key='YES',probability=.6,predicted_at=now-timedelta(minutes=30)));db.flush()
+        assert cat.scan(db,'fixture',at=now+timedelta(minutes=2)).summary['model_supported_outcomes']==4, 'new capability forces a rescan'
 
 
 def test_existing_evaluate_stage_runs_the_scan(store):

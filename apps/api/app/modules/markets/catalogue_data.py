@@ -4,7 +4,7 @@ This is a registry of market *types* the platform understands. It is NOT a list 
 (including SportyBet) currently offers: actual availability is recorded per fixture only from source-backed
 odds observations (markets.bookmaker_market_availability).
 """
-REGISTRY_VERSION='2026.11.16-1'
+REGISTRY_VERSION='2026.11.16-2'
 
 CATEGORIES=[('match_result','Match Result / Winner'),('double_chance','Double Chance'),('goals','Goals / Points / Runs'),('over_under','Over / Under'),
  ('handicap','Handicap'),('btts','Both Teams to Score'),('correct_score','Correct Score'),('segments','Half / Period / Quarter / Set'),('corners','Corners'),
@@ -50,4 +50,5 @@ MAPPINGS=[('1X2','football','Full Time Result (1X2)',False),('MATCHRESULT','foot
  ('HT1X2','football','First Half Result (1X2)',False),('DC','football','Double Chance (1X, X2, 12)',False),('DNB','football','Draw No Bet',False),
  ('BTTS','football','Both Teams to Score',False),('GG/NG','football','Both Teams to Score',False),('CS','football','Exact Score',False),
  ('HTFT','football','Half-Time/Full-Time Result',False),('OU','football','Total Goals Over/Under',True),('AH','football','Asian Handicap',True),
- ('EH','football','European Handicap / 3-Way Handicap',True),('CORNERS_OU','football','Total Corners Over/Under',True),('CARDS_OU','football','Total Cards Over/Under',True)]
+ ('EH','football','European Handicap / 3-Way Handicap',True),('ODD_EVEN','football','Odd/Even Total Goals',False),
+ ('HOME_OU','football','Home Team Goals Over/Under',True),('AWAY_OU','football','Away Team Goals Over/Under',True),('CORNERS_OU','football','Total Corners Over/Under',True),('CARDS_OU','football','Total Cards Over/Under',True)]

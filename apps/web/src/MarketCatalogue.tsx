@@ -4,15 +4,17 @@ import {useResearchRemote} from './ResearchCatalogue';
 
 type Market={id:string;name:string;category:string;kind:string;period:string;outcome_type:string;origin:string;where_offered:boolean;outcomes:{key:string;label:string}[];
  parameter:{type:string;values?:number[]}|null;statuses:string[];offered:boolean;bookmakers:string[];lines:string[];odds:{bookmaker:string;line:string;outcome:string;decimal_odds:number|null}[];
- odds_observed_at:string|null;model_supported:boolean;research:string;probability:number|null;decision:string|null};
+ odds_observed_at:string|null;model_supported:boolean;research:string;probability:number|null;decision:string|null;top_outcome:Ranked|null};
+type Ranked={definition_id:string;market:string;outcome:string;line:string;probability:number;lower:number|null;upper:number|null;skill:number|null;market_skill?:number|null;model:string};
 type Coverage={registered:number;discovered:number;offered:number;fresh:number;stale:number;model_supported:number;evaluated:number;qualified:number;unsupported:number;unavailable:number;missing_data_reasons:Record<string,number>;last_sync:string|null};
-type View={fixture_id:string;sport:string;markets:Market[];coverage:Coverage;categories:{key:string;name:string;registered:number}[];notice:string;scan:{started_at:string;summary:Record<string,unknown>}|null};
+type View={fixture_id:string;sport:string;markets:Market[];coverage:Coverage;analysis_ranking:Ranked[];ranking_basis:string;categories:{key:string;name:string;registered:number}[];notice:string;scan:{started_at:string;summary:Record<string,unknown>}|null};
 
 const STORE='cacsms.predictions.marketDefinitions';
 const REASONS:Record<string,string>={NO_SOURCE_BACKED_ODDS_FOR_FIXTURE:'No source-backed odds for this fixture yet',NO_APPROVED_MODEL_FOR_MARKET:'No approved model for the market',NO_FORECAST_BEFORE_CUTOFF:'No forecast before cutoff',
  INSUFFICIENT_VALUE:'Price offers insufficient value',ODDS_STALE_OR_FUTURE:'Odds older than 15 minutes',NO_CONSERVATIVE_EDGE:'No lower-bound edge',MODEL_NOT_INDEPENDENTLY_APPROVED:'Model not approved',
  CALIBRATION_NOT_VERIFIED:'Calibration unverified',RESEARCH_UNVERIFIED_OR_LEAKAGE:'Research unverified',NO_MATCHING_BOOKMAKER_PRICE:'No matching price'};
 const CHIP:Record<string,string>={REGISTERED:'muted',DISCOVERED:'info',AVAILABLE:'info',FRESH:'good',STALE:'warn',MODEL_SUPPORTED:'info',EVALUATED:'info',QUALIFIED:'good',UNSUPPORTED:'muted',UNAVAILABLE:'bad'};
+const label=(r:Ranked)=>r.outcome.replace('_',' ').toLowerCase().replace(/^./,c=>c.toUpperCase())+(r.line?' '+r.line:'');
 const fmt=(v?:string|null)=>v?new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Africa/Lagos'}).format(new Date(v))+' WAT':'—';
 function stored(){try{const v=JSON.parse(localStorage.getItem(STORE)||'null');return Array.isArray(v)?v.filter(x=>typeof x==='string'):null}catch{return null}}
 
@@ -54,11 +56,12 @@ export default function MarketCatalogue({fixtureId,revision}:{fixtureId:string;r
       <td><span className="mc-chips">{x.statuses.map(s=><i key={s} className={'mc-chip '+(CHIP[s]||'')}>{s.replace('_',' ')}</i>)}</span></td>
       <td>{x.model_supported?<CheckCircle2 className="good" size={16} aria-label="Approved model capability"/>:<span className="muted">—</span>}</td>
       <td className="mc-opt">{x.research==='VERIFIED'?<ShieldCheck className="good" size={16} aria-label="Research verified"/>:<span className="muted" title={x.research}>{x.research==='NOT_STARTED'?'—':x.research.toLowerCase()}</span>}</td>
-      <td>{x.probability==null?'—':x.probability.toFixed(1)+'%'}</td><td>{x.decision?<i className={'mc-chip '+(x.decision==='QUALIFIED'?'good':x.decision==='UNSUPPORTED'?'muted':'bad')}>{x.decision.toLowerCase()}</i>:'—'}</td></tr>)}</tbody></table></div>
+      <td title={x.top_outcome?`${x.top_outcome.model} · validated skill ${x.top_outcome.skill??'—'}%`:'No approved model forecast'}>{x.top_outcome?<><b>{label(x.top_outcome)}</b> {x.top_outcome.probability.toFixed(1)}%</>:x.probability==null?'—':x.probability.toFixed(1)+'%'}</td><td>{x.decision?<i className={'mc-chip '+(x.decision==='QUALIFIED'?'good':x.decision==='UNSUPPORTED'?'muted':'bad')}>{x.decision.toLowerCase()}</i>:'—'}</td></tr>)}</tbody></table></div>
      :<div className="dmr-data-empty">{view==='offered'?'No markets have been observed in source-backed odds for this fixture yet. Switch to the registered catalogue to see supported definitions.':'No markets match this filter.'}</div>}
    </div>
    <aside className="aip-selected mc-coverage" aria-label="AI market coverage"><div className="aip-selected-head"><b><BarChart3 size={17}/>AI Market Coverage</b></div>
     {coverage.map(([label,value,hint])=><div key={label} className="mc-cov-row" title={hint}><span>{label}</span><b>{value??'—'}</b></div>)}
+    <div className="mc-best" title={v?.ranking_basis}><b><ShieldCheck size={15}/>Most suitable for analysis</b>{v?.analysis_ranking?.length?v.analysis_ranking.slice(0,6).map((r,i)=><div key={r.definition_id+r.outcome+r.line}><span><em>{i+1}</em>{r.market.replace(' (Match Result)','').replace('Double Chance (1X, X2, 12)','Double Chance')} · {label(r)}</span><b>{r.probability.toFixed(1)}%</b><small>validated market skill {r.market_skill??r.skill??'—'}% · 95% {r.lower??'—'}–{r.upper??'—'}%</small></div>):<p className="dmr-caption">No validated model forecast for this fixture yet.</p>}</div>
     <div className="mc-reasons"><b><ListChecks size={15}/>Missing-data reasons</b>{c&&Object.keys(c.missing_data_reasons).length?Object.entries(c.missing_data_reasons).map(([k,n])=><div key={k}><span>{REASONS[k]||k.replaceAll('_',' ').toLowerCase()}</span><em>{n}</em></div>):<p className="dmr-caption">None recorded.</p>}</div>
     <p className="dmr-caption"><Clock3 size={12}/> Last successful sync: {fmt(c?.last_sync)}</p>
    </aside>

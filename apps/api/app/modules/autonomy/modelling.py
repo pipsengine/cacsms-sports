@@ -45,7 +45,8 @@ def train_if_due(factory,at=None):
   comp=db.scalar(select(m.Competition).where(m.Competition.name==COMPETITION,m.Competition.country=='Germany'))
   if comp is None:return {'status':'NO_COMPETITION'}
   matches=verified_matches(db,comp.id,at)
-  active=db.scalar(select(m.ModelVersion).where(m.ModelVersion.sport_id==comp.sport_id,m.ModelVersion.status=='ACTIVE'))
+  from app.modules.prediction.market_model import model_type
+  active=next((x for x in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==comp.sport_id,m.ModelVersion.status=='ACTIVE')) if model_type(x)=='logistic'),None)
   last=(db.get(m.ProviderSyncState,'autonomy:modelling').payload or {})
  trained_on=int(last.get('trained_on') or 0);last_at=last.get('trained_at')
  grown=len(matches)-trained_on>=MIN_NEW_RESULTS
@@ -66,3 +67,24 @@ def train_if_due(factory,at=None):
   state.payload={'trained_on':len(matches),'trained_at':at.isoformat(),'examples':len(examples),'model_id':created['id'],
                  'promoted':bool(decision.get('promoted')),'reasons':decision.get('reasons',[])}
  return {'status':'PROMOTED' if decision.get('promoted') else 'REJECTED','model_id':created['id'],'examples':len(examples),'reasons':decision.get('reasons',[])}
+
+
+MARKET_RETRAIN=timedelta(days=7)
+
+
+def train_market_model_if_due(factory,at=None):
+ """Weekly (or when none is active) per-outcome validation of the Poisson market model."""
+ from app.modules.prediction import market_model
+ at=at or datetime.now(timezone.utc)
+ with factory.begin() as db:
+  state=cached(db,'autonomy:market-model',None)
+  comp=db.scalar(select(m.Competition).where(m.Competition.name==COMPETITION,m.Competition.country=='Germany'))
+  if comp is None:return {'status':'NO_COMPETITION'}
+  active=market_model.active_model(db,comp.sport_id)
+  last=(state.payload or {}).get('trained_at')
+  if (state.next_check_at and utc(state.next_check_at)>at) or (active and last and at-datetime.fromisoformat(last)<MARKET_RETRAIN):return {'status':'CURRENT' if active else 'NOT_DUE'}
+  state.next_check_at=at+CHECK_EVERY
+  if len(verified_matches(db,comp.id,at))<300:return {'status':'INSUFFICIENT_HISTORY'}
+  report=market_model.train(db,comp.sport_id,comp.id,at)
+  state.payload={**report,'trained_at':at.isoformat()}
+ return report

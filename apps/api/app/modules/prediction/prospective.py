@@ -45,7 +45,9 @@ def infer_approved(db, fixture, now=None, dossier_id=None):
     report={'created':[], 'existing':[], 'blocked':[]}
     dossiers=db.scalars(select(m.Research).where(m.Research.fixture_id==fixture.id,m.Research.status=='VERIFIED')).all()
     if dossier_id is not None:dossiers=[row for row in dossiers if row.id==dossier_id]
-    models=db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==fixture.sport_id,m.ModelVersion.status=='ACTIVE')).all()
+    from app.modules.prediction.market_model import model_type
+    # Logistic home-win artifacts only; the Poisson market model publishes through market_model.infer.
+    models=[x for x in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==fixture.sport_id,m.ModelVersion.status=='ACTIVE')).all() if model_type(x)=='logistic']
     if not dossiers or not models:
         report['blocked'].append('Verified dossier and independently approved active model required')
         return report

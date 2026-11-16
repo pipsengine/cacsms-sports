@@ -5,6 +5,7 @@ forecasts come from predictions.forecasts of ACTIVE models, and every evaluation
 markets.service.evaluate_market gates. Nothing is persisted here; no bookmaker account automation or scraping.
 """
 import re
+from collections import defaultdict
 from types import SimpleNamespace
 from datetime import datetime,timezone,timedelta
 from sqlalchemy import select,func
@@ -94,15 +95,27 @@ def forecasts(db,fixture_id,cutoff):
     rows=db.execute(select(m.Prediction,m.ModelVersion).join(m.ModelVersion,m.Prediction.model_id==m.ModelVersion.id)
                     .where(m.Prediction.fixture_id==fixture_id,m.Prediction.predicted_at<=cutoff,m.ModelVersion.status=='ACTIVE')
                     .order_by(m.Prediction.predicted_at.desc(),m.Prediction.id)).all()
+    # One model per market so its outcomes stay coherent: most outcomes covered, then best holdout Brier, then newest.
+    latest={}
+    for prediction,model in rows:latest.setdefault((prediction.market_key,model.id,prediction.outcome_key),(prediction,model))
+    per=defaultdict(lambda:defaultdict(dict))
+    for (market,model_id,outcome),pair in latest.items():per[market][model_id][outcome]=pair
+    def brier(pair):
+        prediction,model=pair;d=prediction.details if isinstance(prediction.details,dict) else {};v=model.validation if isinstance(model.validation,dict) else {}
+        value=d.get('holdout_brier',(v.get('holdout_metrics') or {}).get('brier'))
+        return float(value) if isinstance(value,(int,float)) else 1.0
     out={}
-    for prediction,model in rows:out.setdefault((prediction.market_key,prediction.outcome_key),(prediction,model))
+    for market,models in per.items():
+        best=min(models.values(),key=lambda pairs:(-len(pairs),sum(brier(p) for p in pairs.values())/len(pairs)))
+        for outcome,pair in best.items():out[(market,outcome)]=pair
     return out
 
 
 def evaluate(db,prediction,model,quote,now):
     lower,upper=interval(prediction.details)
     probability=float(prediction.probability)
-    row=dict(prediction_id=prediction.id,market_key=prediction.market_key,market=market_name(prediction.market_key),family=family(prediction.market_key),
+    skill=(prediction.details or {}).get('skill') if isinstance(prediction.details,dict) else None
+    row=dict(skill=round(skill*100,1) if isinstance(skill,(int,float)) else None,prediction_id=prediction.id,market_key=prediction.market_key,market=market_name(prediction.market_key),family=family(prediction.market_key),
              outcome_key=prediction.outcome_key,selection=outcome_name(prediction.outcome_key),probability=round(probability*100,1),
              lower=round(lower*100,1) if lower is not None else None,upper=round(upper*100,1) if upper is not None else None,
              model=model.name+' '+model.version,predicted_at=prediction.predicted_at,odds=None,odds_observed_at=None,ev=None,conservative_ev=None,
@@ -123,7 +136,12 @@ def evaluate(db,prediction,model,quote,now):
 
 
 def rank_key(row):
-    return (row['decision']!='QUALIFIED',row['odds'] is None,-(row['lower'] if row['lower'] is not None else -1),-(row['conservative_ev'] if row['conservative_ev'] is not None else -1000),-row['probability'])
+    # Priced: qualification, lower bound, lower-bound EV. Unpriced: validated skill over the base rate ("most suitable for analysis").
+    unpriced=row['odds'] is None
+    lower=row['lower'] if row['lower'] is not None else -1
+    skill=row.get('market_skill',row.get('skill'))
+    return (row['decision']!='QUALIFIED',unpriced,-(skill if skill is not None else -100) if unpriced else -lower,
+            -row['probability'] if unpriced else -(row['conservative_ev'] if row['conservative_ev'] is not None else -1000),-row['probability'])
 
 
 def confidence(probabilities):
@@ -162,7 +180,8 @@ def insights(analysis,outcomes):
 
 
 def kpis(db,sport_id):
-    active=db.scalar(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.status=='ACTIVE').limit(1))
+    from app.modules.prediction.market_model import model_type
+    active=next((x for x in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.status=='ACTIVE')) if model_type(x)=='logistic'),None)
     holdout=(active.validation or {}).get('holdout_metrics') if active and isinstance(active.validation,dict) else None
     avg=db.scalar(select(func.avg(m.Prediction.probability)))
     return dict(fixtures_analysed=db.scalar(select(func.count(func.distinct(m.Prediction.fixture_id)))) or 0,
@@ -192,7 +211,12 @@ def workspace(db,fixture_id,as_of=None,bookmaker=None,now=None):
     books={b for b,_,_ in quotes};selected=pick_bookmaker(books,bookmaker)
     markets=build_markets(quotes,selected)
     predicted=forecasts(db,fixture_id,cutoff)
-    rows=sorted((evaluate(db,p,model,quotes.get((selected,p.market_key,p.outcome_key)),now) for p,model in predicted.values()),key=rank_key)
+    rows=[evaluate(db,p,model,quotes.get((selected,p.market_key,p.outcome_key)),now) for p,model in predicted.values()]
+    # Unpriced suitability is a market-level property: every outcome inherits its market's best validated skill.
+    market_skill={}
+    for r in rows:market_skill[r['market_key']]=max(market_skill.get(r['market_key'],-100),r['skill'] if r['skill'] is not None else -100)
+    for r in rows:r['market_skill']=r['skill'] if r['market_key']=='CS' else market_skill[r['market_key']]  # exact scores are separate events
+    rows.sort(key=rank_key)
     for market in markets:
         for sel in market['selections']:sel['predicted']=(market['key'],sel['key']) in predicted
     pairs=sum(len(mk['selections']) for mk in markets);modelled=sum(s['predicted'] for mk in markets for s in mk['selections'])

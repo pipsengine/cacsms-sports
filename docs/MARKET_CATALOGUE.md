@@ -34,3 +34,24 @@ in the same fixture are flagged with a `correlation_group`.
 - Live markets are registered but not collected (no permitted live feed).
 
 Tests: `apps/api/tests/test_market_catalogue.py`; UI: `scripts/verify_predictions_ui.py`.
+
+## Scanning all markets: the validated multi-market model
+
+`app/modules/prediction/market_model.py` prices every football market a score distribution can settle: 1X2, double chance,
+total goals 0.5–5.5, home/away team goals 0.5–2.5, BTTS, odd/even and exact scores 0-0…3-3 (50 outcomes).
+
+- **Model**: independent Poisson goals from the verified pre-match rates, shrunk toward league means (weight fitted by
+  likelihood), then per-outcome Platt recalibration, re-normalised within each market (1X2 sums to 1, Over/Under complementary,
+  double chance derived from the calibrated 1X2).
+- **Validation (per outcome)**: corroborated history, features from earlier matches only, chronological 70/30 split; all
+  parameters fitted on the earlier 70%. An outcome is approved only if, on the unseen 30%, it beats the base rate on Brier
+  **and** log-loss with calibration error ≤ `SPORTS_MODEL_MAX_ECE`. Only approved outcomes are ever published.
+- **Live result (16 Nov 2026, 378 holdout matches)**: 30 of 50 outcomes approved, e.g. 1X2 Home skill 11.2%, Away 8.0%,
+  Draw 0.6%; team totals; O/U 3.5/4.5/5.5. Rejected honestly: O/U 0.5–2.5, BTTS, odd/even, most exact scores.
+- **Lifecycle**: trained autonomously (`autonomy/modelling.train_market_model_if_due`, weekly), activated only if ≥1 outcome
+  passes; activation publishes a pipeline event so Predict re-runs for open fixtures. Logistic promotion never retires it.
+- **Coherent selection**: per market, the scanner uses one model (most outcomes covered, then best holdout Brier), so 1X2
+  probabilities always come from one distribution.
+- **Most suitable for analysis**: markets ranked by their validated skill over the base rate (Brier skill score on unseen
+  matches), showing each market's most likely outcome with its 95% range; exact scores are ranked individually. Once prices
+  exist, ranking switches to qualification → lower bound → lower-bound EV; high probability at negative EV never qualifies.

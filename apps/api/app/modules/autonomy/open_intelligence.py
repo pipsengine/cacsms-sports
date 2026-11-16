@@ -194,8 +194,9 @@ def add_observation(db,source_id,fixture_id,section,data,url,at,reference):
 
 
 def outcome(hg,ag):
- return {'status':'FINAL','score':{'home':hg,'away':ag},
-         'outcomes':{'1X2':{'HOME':'WON' if hg>ag else 'LOST','DRAW':'WON' if hg==ag else 'LOST','AWAY':'WON' if hg<ag else 'LOST'}}}
+ # Settles every market the market model can price (1X2, DC, totals, team totals, BTTS, odd/even, exact score).
+ from app.modules.prediction.market_model import settled_outcomes
+ return {'status':'FINAL','score':{'home':hg,'away':ag},'outcomes':settled_outcomes(hg,ag)}
 
 
 def season_label(season):return f'{season}/{(season+1)%100:02d}'
@@ -425,8 +426,9 @@ def collect(factory,at=None):
   except Exception as exc:
    report['errors'].append({'step':name,'code':type(exc).__name__,'detail':str(exc)[:160]})
  try:
-  from app.modules.autonomy.modelling import train_if_due
+  from app.modules.autonomy.modelling import train_if_due,train_market_model_if_due
   report['modelling']=train_if_due(factory,at=at)
+  report['market_model']=train_market_model_if_due(factory,at=at)
  except Exception as exc:
   report['errors'].append({'step':'modelling','code':type(exc).__name__,'detail':str(exc)[:160]})
  return report

@@ -49,12 +49,12 @@ CATS=[('match_result','Match Result / Winner'),('double_chance','Double Chance')
 
 
 def catalogue_view(ident,empty=False):
-    def mk(i,name,cat,outs,offered=False,supported=False,decision=None,prob=None,lines=()):
+    def mk(i,name,cat,outs,offered=False,supported=False,decision=None,prob=None,lines=(),top=None):
         st=['REGISTERED']+(['AVAILABLE','STALE'] if offered else [])+(['MODEL_SUPPORTED'] if supported else [])+(['EVALUATED'] if decision and decision!='UNSUPPORTED' else [])+(['UNSUPPORTED'] if decision=='UNSUPPORTED' else [])
         return dict(id=f'football.m{i}',name=name,category=cat,kind='SCHEDULED',period='FULL_TIME',outcome_type='enumerated',origin='REGISTERED',where_offered=False,
                     outcomes=[{'key':o,'label':o.title()} for o in outs],parameter=None,statuses=st,offered=offered,bookmakers=['Bet365'] if offered else [],lines=list(lines),
                     odds=[{'bookmaker':'Bet365','line':'','outcome':o,'decimal_odds':1.9} for o in outs] if offered else [],odds_observed_at=STAMP if offered else None,
-                    model_supported=supported,research='VERIFIED',probability=prob,decision=decision)
+                    model_supported=supported,research='VERIFIED',probability=prob,decision=decision,top_outcome=top)
     offered=[] if empty else [mk(0,'Full Time Result (1X2)','match_result',['HOME','DRAW','AWAY'],True,True,'REJECTED',72.4),mk(1,'Total Goals Over/Under','over_under',['OVER','UNDER'],True,False,'UNSUPPORTED',None,['2.5']),
              mk(2,'Asian Handicap','handicap',['HOME','AWAY'],True,False,'UNSUPPORTED',None,['-1.75'])]
     registered=[mk(10+i,f'Registered market {i}',CATS[i%len(CATS)][0],['YES','NO']) for i in range(40)]
@@ -62,7 +62,8 @@ def catalogue_view(ident,empty=False):
     return dict(fixture_id=ident,sport='football',markets=markets,categories=[{'key':k,'name':n,'registered':sum(x['category']==k for x in markets)} for k,n in CATS],
                 coverage=dict(registered=len(markets),discovered=0,offered=len(offered),fresh=0,stale=len(offered),model_supported=1 if offered else 0,evaluated=1 if offered else 0,qualified=0,
                               unsupported=2 if offered else 0,unavailable=0,missing_data_reasons={'ODDS_STALE_OR_FUTURE':3} if offered else {'NO_SOURCE_BACKED_ODDS_FOR_FIXTURE':1},last_sync=STAMP if offered else None),
-                notice='REGISTERED means the platform understands the market type.',scan=None)
+                notice='REGISTERED means the platform understands the market type.',scan=None,ranking_basis='skill',
+                analysis_ranking=[] if empty else [dict(definition_id='football.m0',market='Full Time Result (1X2)',outcome='HOME',line='',probability=72.4,lower=65.0,upper=80.0,skill=11.2,model='Poisson 1')])
 
 
 def main():
@@ -92,6 +93,7 @@ def main():
         tracked=lambda:page.locator('.mc-cov-row',has_text='Selected for tracking').locator('b').inner_text()
         assert tracked()=='1', 'default tracking = offered and model-supported'
         page.get_by_label('Select Total Goals Over/Under').check();assert tracked()=='2'
+        assert page.locator('.mc-best div').count()==1 and 'Home' in page.locator('.mc-best').inner_text()
         page.get_by_role('button',name='Registered catalogue (43)').click();assert rows.count()==43
         assert page.locator('.mc-explorer tr.mc-registered').count()==40, 'registered rows are visually distinct and never offered'
         page.locator('.mc-categories button',has_text='Handicap').click();assert rows.count()==4

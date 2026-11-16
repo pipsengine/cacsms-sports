@@ -195,11 +195,18 @@ def sync_capabilities(db):
  from app.modules.prediction.service import FEATURE_NAMES
  active=db.scalars(select(m.ModelVersion).where(m.ModelVersion.status=='ACTIVE')).all()
  wanted={}  # (model, definition, outcome, line) -> basis; one row per capability even if several bases apply
+ from app.modules.prediction.market_model import model_type,MODEL_TYPE
  for model in active:
   v=model.validation if isinstance(model.validation,dict) else {}
   if any(v.get(k) is not True for k in REQUIRED_APPROVALS):continue
   sport=sport_key(db.get(m.Sport,model.sport_id).name)
-  if list(v.get('feature_names') or [])==list(FEATURE_NAMES):
+  if model_type(model)==MODEL_TYPE:
+   # Only outcomes that individually passed out-of-sample validation become capabilities.
+   for key,result in (v.get('markets') or {}).items():
+    if not result.get('approved'):continue
+    market,outcome=key.split('|',1);ident,line=normalize(db,'*',market,sport)
+    wanted.setdefault((model.id,ident,outcome,line),f"Poisson market model; holdout Brier {result['holdout']['brier']} vs base rate {result['baseline']['brier']}, calibration error {result['calibration_error']}")
+  elif list(v.get('feature_names') or [])==list(FEATURE_NAMES):
    wanted.setdefault((model.id,definition_id(sport,'Full Time Result (1X2)'),'HOME',''),'Binary home-win contract (prospective 1X2/HOME inference)')
   for market,outcome in db.execute(select(m.Prediction.market_key,m.Prediction.outcome_key).where(m.Prediction.model_id==model.id).distinct()).all():
    ident,line=normalize(db,'*',market,sport)
@@ -225,8 +232,12 @@ def scan(db,fixture_id,at=None,trigger='PIPELINE_EVALUATE',force=False):
  seed(db)
  watermark=db.scalar(select(func.max(m.Odds.observed_at)).where(m.Odds.fixture_id==fixture_id,m.Odds.observed_at<=at))
  last=db.scalar(select(m.MarketScanRun).where(m.MarketScanRun.fixture_id==fixture_id).order_by(m.MarketScanRun.started_at.desc()).limit(1))
- if not force and last and utc(last.started_at)>at-SCAN_MIN_INTERVAL and last.odds_watermark==watermark:return last
- changes=sync_availability(db,fixture,at);supported=sync_capabilities(db)
+ supported=sync_capabilities(db)
+ # Rescan when odds OR model capabilities change (e.g. a newly validated market model), otherwise throttle.
+ import hashlib
+ signature=f"{len(supported)}:{hashlib.sha1(repr(sorted(supported)).encode()).hexdigest()[:12]}"
+ if not force and last and utc(last.started_at)>at-SCAN_MIN_INTERVAL and last.odds_watermark==watermark and (last.summary or {}).get('capability_signature')==signature:return last
+ changes=sync_availability(db,fixture,at)
  cutoff=min(at,utc(fixture.kickoff_at))
  predicted=forecasts(db,fixture_id,cutoff)
  run=m.MarketScanRun(fixture_id=fixture_id,trigger=trigger,status='RUNNING',started_at=at,odds_watermark=watermark,summary={});db.add(run);db.flush()
@@ -268,7 +279,8 @@ def scan(db,fixture_id,at=None,trigger='PIPELINE_EVALUATE',force=False):
   group=f'{fixture_id}:{category}' if r['decision']=='QUALIFIED' and (qualified_groups[category]>1 or sum(qualified_groups.values())>1) else None
   db.add(m.MarketScanResult(scan_id=run.id,fixture_id=fixture_id,rank=rank,correlation_group=group,**r))
  summary={'outcomes':len(rows),'evaluated':sum(r['decision'] not in ('UNSUPPORTED',) for r in rows),'qualified':sum(r['decision']=='QUALIFIED' for r in rows),
-          'unsupported':sum(r['decision']=='UNSUPPORTED' for r in rows),'fresh':sum('FRESH' in r['statuses'] for r in rows),'availability_changes':changes}
+          'unsupported':sum(r['decision']=='UNSUPPORTED' for r in rows),'fresh':sum('FRESH' in r['statuses'] for r in rows),'availability_changes':changes,
+          'capability_signature':signature,'model_supported_outcomes':len(supported)}
  run.status='COMPLETED';run.completed_at=datetime.now(timezone.utc);run.summary=summary
  db.flush()
  return run
@@ -338,6 +350,24 @@ def fixture_view(db,fixture_id,at=None):
  for r in results:by_def[r.definition_id].append(r)
  caps={(c.definition_id) for c in db.scalars(select(m.MarketModelCapability))}
  research=db.scalar(select(m.Research.status).where(m.Research.fixture_id==fixture_id).order_by(m.Research.version.desc()).limit(1))
+ # Model forecasts exist independently of prices: show them on registered markets and rank suitability for analysis.
+ from app.modules.market_scanner.service import forecasts,interval
+ cutoff=min(at,utc(fixture.kickoff_at));modelled=defaultdict(list);ranking=[]
+ for (market_key,outcome),(prediction,model) in forecasts(db,fixture_id,cutoff).items():
+  ident,line=normalize(db,'*',market_key,sport);lower,upper=interval(prediction.details);d=prediction.details if isinstance(prediction.details,dict) else {}
+  entry={'definition_id':ident,'market':defs[ident].name if ident in defs else ident,'outcome':outcome,'line':line,'probability':round(float(prediction.probability)*100,1),
+         'lower':round(lower*100,1) if lower is not None else None,'upper':round(upper*100,1) if upper is not None else None,
+         'skill':round(d['skill']*100,1) if isinstance(d.get('skill'),(int,float)) else None,'model':model.name+' '+model.version}
+  modelled[ident].append(entry);ranking.append(entry)
+ # Per market (and line): the market's validated skill decides its rank; its most likely outcome is shown.
+ best={}
+ for e in ranking:
+  # Exact-score outcomes are separate events: each keeps its own skill instead of inheriting the market's.
+  key=(e['definition_id'],e['line'],e['outcome'] if defs.get(e['definition_id']) is not None and defs[e['definition_id']].outcome_type=='score' else '');cur=best.get(key)
+  skill=max(e['skill'] if e['skill'] is not None else -100,cur[0] if cur else -100)
+  pick=e if cur is None or e['probability']>cur[1]['probability'] else cur[1]
+  best[key]=(skill,pick)
+ ranking=[{**pick,'market_skill':skill} for skill,pick in sorted(best.values(),key=lambda x:(-x[0],-(x[1]['lower'] or 0)))]
  markets=[]
  for ident,d in defs.items():
   offers=[a for a in avail if a.definition_id==ident]
@@ -352,14 +382,18 @@ def fixture_view(db,fixture_id,at=None):
   if any(r.decision=='QUALIFIED' for r in rs):status.append('QUALIFIED')
   if live and not any(r.decision not in ('UNSUPPORTED',) for r in rs):status.append('UNSUPPORTED')
   best=next((r for r in rs if r.decision!='UNSUPPORTED'),None)
-  markets.append({**definition_dict(d,outs[ident]),'statuses':status,'offered':bool(live),
+  top=max(modelled.get(ident,[]),key=lambda e:(e['skill'] or -100,e['probability']),default=None)
+  markets.append({**definition_dict(d,outs[ident]),'statuses':status,'offered':bool(live),'model_outcomes':modelled.get(ident,[]),
+                  'top_outcome':top,
                   'bookmakers':sorted({a.bookmaker for a in live}),'lines':sorted({a.line for a in live if a.line},key=lambda x:float(x)),
                   'odds':[{'bookmaker':r.bookmaker,'line':r.line,'outcome':r.outcome_key,'decimal_odds':float(r.decimal_odds) if r.decimal_odds is not None else None} for r in rs][:24],
                   'odds_observed_at':latest,'model_supported':ident in caps,'research':research or 'NOT_STARTED',
-                  'probability':best.metrics.get('probability') if best else None,'decision':best.decision if best else ('UNSUPPORTED' if live else None)})
+                  'probability':best.metrics.get('probability') if best else (top['probability'] if top else None),'decision':best.decision if best else ('UNSUPPORTED' if live else None)})
  order={key:i for i,(key,_) in enumerate(CATEGORIES)}
  markets.sort(key=lambda x:(not x['offered'],order.get(x['category'],99),x['name']))
  return {'fixture_id':fixture_id,'sport':sport,'markets':markets,'coverage':coverage(db,fixture_id,markets,run),
+         'analysis_ranking':ranking[:15],
+         'ranking_basis':'Validated skill over the base rate on unseen matches (Brier skill score), then probability lower bound. Without prices this is suitability for analysis, not a betting qualification.',
          'best_fit':[result_dict(r,defs.get(r.definition_id)) for r in results if r.decision!='UNSUPPORTED'][:10],
          'scan':scan_dict(run) if run else None,'categories':categories(db,sport),
          'notice':'REGISTERED means the platform understands the market type; only AVAILABLE markets were observed in source-backed odds for this fixture. No market is presented as offered by SportyBet.'}

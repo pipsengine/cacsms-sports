@@ -334,6 +334,9 @@ def analyse(db,run,at):
 def predict(db,run,at):
  latest=db.scalar(select(m.Research).where(m.Research.fixture_id==run.fixture_id,m.Research.status=='VERIFIED').order_by(m.Research.version.desc()).limit(1))
  report=infer_approved(db,db.get(m.Fixture,run.fixture_id),now=at,dossier_id=latest.id if latest else None)
+ from app.modules.prediction.market_model import infer as infer_markets
+ markets=infer_markets(db,db.get(m.Fixture,run.fixture_id),dossier_id=latest.id if latest else None,now=at)
+ report={k:report[k]+markets[k] for k in ('created','existing','blocked')}
  refs=report['created']+report['existing']
  if not refs:raise Waiting('; '.join(dict.fromkeys(report['blocked'])) or 'No approved inference artifact can produce a valid forecast',code='NO_APPROVED_MODEL')
  forecasts=[]
