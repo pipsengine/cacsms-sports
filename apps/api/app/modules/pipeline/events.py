@@ -66,6 +66,8 @@ def publish_changes(session,flush_context):
   section=(obj.payload or {}).get('section') if name=='Observation' and isinstance(obj.payload,dict) else None
   stage=invalidation_stage(name,section)
   payload={'entity':name,'record_id':obj.id,'invalidate_from':stage}
+  if name=='Observation' and isinstance(obj.payload,dict) and obj.payload.get('competition_id'):
+   payload['competition_id']=obj.payload['competition_id']
   fixtures=[None] if name in GLOBAL else _fixture_ids(connection,obj,name)
   if not fixtures and name=='Observation':fixtures=[None]
   for fixture_id in fixtures:

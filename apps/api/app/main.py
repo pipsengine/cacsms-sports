@@ -489,6 +489,12 @@ app.include_router(workflow_context_router)
 from app.modules.research.fixture_intelligence import router as fixture_intelligence_router
 app.include_router(fixture_intelligence_router)
 
+from app.modules.standings.routes import router as standings_router
+app.include_router(standings_router)
+
+from app.modules.research.deep_workspace_routes import router as deep_workspace_router
+app.include_router(deep_workspace_router)
+
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):
  if resource not in TABLES:raise HTTPException(404,'Unknown resource')

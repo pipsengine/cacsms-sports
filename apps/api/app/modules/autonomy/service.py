@@ -81,6 +81,9 @@ def cycle(factory=SessionLocal,fetcher=None):
   from app.modules.autonomy.openligadb import collect as collect_open_data
   report['open_data']=collect_open_data(factory)
   report['errors'].extend(report['open_data']['errors'])
+  from app.modules.standings.service import collect as collect_standings
+  report['standings']=collect_standings(factory)
+  report['errors'].extend(report['standings']['errors'])
   from app.modules.autonomy.discovery import collect
   discovery=collect(factory,**({'fetcher':fetcher} if fetcher is not None else {}))
   report['discovery']=discovery
@@ -97,7 +100,10 @@ def cycle(factory=SessionLocal,fetcher=None):
     if remaining is None:
      query=select(m.PipelineRun.id)
      if event.fixture_id:query=query.where(m.PipelineRun.fixture_id==event.fixture_id)
-     else:query=query.where(m.PipelineRun.status!='COMPLETED')
+     else:
+      query=query.where(m.PipelineRun.status!='COMPLETED')
+      if event.payload.get('competition_id'):
+       query=query.where(m.PipelineRun.fixture_id.in_(select(m.Fixture.id).where(m.Fixture.competition_id==event.payload['competition_id'])))
      remaining=list(db.scalars(query))
      event.payload={**event.payload,'remaining_run_ids':remaining}
     target_ids.update(remaining)

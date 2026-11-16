@@ -1,9 +1,10 @@
 import React,{useEffect,useState} from 'react';
+import {createPortal} from 'react-dom';
 import {NavLink} from 'react-router-dom';
-import {Activity,Bot,CalendarDays,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Database,Dribbble,Ellipsis,Globe2,Layers3,Radio,RefreshCw,ShieldAlert,ShieldCheck,Trophy,Volleyball,WifiOff,Workflow} from 'lucide-react';
+import {Activity,Bot,CalendarDays,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Database,Dribbble,Ellipsis,Globe2,Layers3,Radio,RefreshCw,Settings2,ShieldAlert,ShieldCheck,Trophy,Volleyball,WifiOff,Workflow} from 'lucide-react';
 import {useResearchScope,useResearchRemote} from './ResearchCatalogue';
 import {useLiveUpdates} from './LiveUpdates';
-import {StageFlow,FlowLegend,aggregateStatus,toneOf,type FlowCounts} from './StageFlow';
+import {aggregateStatus,toneOf,type FlowCounts} from './StageFlow';
 import {stageHref,workflowStages} from './workflowStages';
 import './AutonomousFixtures.css';
 
@@ -48,7 +49,7 @@ export default function AutonomousFixtures(){
  const{selection:s,change,revision,refresh}=useResearchScope();const{connected}=useLiveUpdates();
  const[tab,setTab]=useState<typeof TABS[number]>('Fixtures'),[status,setStatus]=useState<string>('upcoming'),[page,setPage]=useState(1);
  useEffect(()=>setPage(1),[s.sport,s.country,s.league,s.season,status]);
- const query=new URLSearchParams({hours:String(HOURS),status,page:String(page),page_size:'10'});
+ const query=new URLSearchParams({hours:String(HOURS),status,page:String(page),page_size:'5'});
  if(s.sport)query.set('sport',s.sport);if(s.country)query.set('country',s.country);if(s.league)query.set('competition_id',s.league);if(s.season)query.set('season_id',s.season);
  const data=useResearchRemote<Overview>(API+'?'+query,revision);
  const[last,setLast]=useState<Overview|null>(null);useEffect(()=>{if(data.data)setLast(data.data)},[data.data]);
@@ -70,7 +71,8 @@ export default function AutonomousFixtures(){
  const period={upcoming:`Next ${HOURS} hours`,live:'In play now',completed:`Last ${HOURS} hours`,all:`±${HOURS} hours`}[status];
 
  return <div className="af-root">
-  <section className="af-top"><div className="af-intro"><div className="af-eyebrow">SPORTS INTELLIGENCE · AUTO-DISCOVERY</div><span className={'af-mode'+(online?'':' af-mode-off')}><Bot size={15}/>{o?online?'Autonomous':'Controller offline':'Connecting'}</span><p>Autonomous discovery, update and research of sports, competitions, seasons and fixtures from authorized sources.</p></div>
+  {document.getElementById('fixtures-runtime-badge')&&createPortal(<span className={'af-runtime-badge '+(online?'online':'offline')}><Bot size={24}/>Autonomous Mode: {online?'ON':'OFF'}<span className="af-dot"/></span>,document.getElementById('fixtures-runtime-badge')!)}
+  <section className="af-top"><div className="af-intro"><div className="af-eyebrow">SPORTS INTELLIGENCE</div><div className="af-title-line"><h2>Fixtures &amp; Competitions</h2><span className={'af-mode'+(online?'':' af-mode-off')}><Bot size={15}/>{o?online?'Autonomous':'Controller offline':'Connecting'}</span></div><p>Autonomous discovery, update and research of sports, competitions, seasons and fixtures from authorized sources.</p></div>
    <div className="af-metrics">
     <div className="af-metric blue"><span className="af-metric-icon"><Trophy/></span><span>Sports<strong>{n(o?.metrics.sports)}</strong><small>{n(o?.metrics.countries)} countries</small></span></div>
     <div className="af-metric violet"><span className="af-metric-icon"><Layers3/></span><span>Competitions<strong>{n(o?.metrics.competitions)}</strong><small>{n(o?.metrics.teams)} canonical teams</small></span></div>
@@ -78,8 +80,14 @@ export default function AutonomousFixtures(){
     <div className="af-metric orange"><span className="af-metric-icon"><Radio/></span><span>Live fixtures<strong>{n(o?.metrics.live_fixtures)}</strong><small>Reported in play</small></span></div>
    </div></section>
 
-  <section className="af-card af-pipeline" aria-label="Autonomous research pipeline"><div className="af-card-head"><div className="af-pipeline-title"><span className="af-pipeline-icon"><Workflow/></span><div><h3>Autonomous Research Pipeline</h3><p>{o?`${n(o.pipeline.runs)} fixture runs in scope · ${n(completedRuns)} completed · self-running, no manual initiation`:'Loading pipeline progress…'}</p></div></div><span className={'af-pill '+(online?'good':'warn')}><span className="af-dot"/>{online?'Running':o?words(o.automation.runtime.status):'Checking'}</span></div>
-   <StageFlow compact steps={steps} label="Pipeline progress across fixtures in scope"/><FlowLegend/></section>
+  <section className="af-card af-pipeline" aria-label="Autonomous research pipeline"><div className="af-card-head"><div className="af-pipeline-title"><span className="af-pipeline-icon"><Bot/></span><div><h3>Autonomous Research Pipeline</h3><p>{o?`${n(o.pipeline.runs)} fixture runs in scope · ${n(completedRuns)} completed · self-running, no manual initiation`:'Loading pipeline progress…'}</p></div></div><span className={'af-pill '+(online?'good':'warn')}><span className="af-dot"/>{online?'Running':o?words(o.automation.runtime.status):'Checking'}</span></div>
+   <ol className="af-reference-flow" aria-label="Research pipeline">{[
+ {name:'Discover',keys:['discover'],caption:n(o?.metrics.sports)+' sports'},
+ {name:'Extract',keys:['acquire'],caption:n(o?.metrics.competitions)+' comps'},
+ {name:'Validate',keys:['research'],caption:o?n(o.coverage.verified_dossiers)+' verified':'Checking'},
+ {name:'Analyze',keys:['analyse'],caption:n(o?.metrics.fixtures_window)+' fixtures'},
+ {name:'Update',keys:['monitor'],caption:connected?'Live sync':'Connecting'}
+ ].map(step=>{const actual=steps.find(x=>step.keys.includes(x.key));const tone=toneOf(actual?.status);return <li key={step.name} className={'tone-'+tone}><NavLink to={actual?.href||'/sports/orchestrator'} title={actual?.title}><span>{tone==='done'?<CheckCircle2/>:tone==='blocked'?<ShieldAlert/>:<Clock3/>}</span><b>{step.name}</b><small>{step.caption}</small></NavLink><ChevronRight className="af-flow-arrow"/></li>})}</ol></section>
 
   {data.error&&<div className="af-error" role="alert">Fixture intelligence unavailable: {data.error}</div>}
 
@@ -88,26 +96,26 @@ export default function AutonomousFixtures(){
     <div className="af-sport-tiles">{topSports.map((sp,i)=><button type="button" key={sp.id} className={'af-sport t'+i+(s.sport===sp.name?' active':'')} aria-pressed={s.sport===sp.name} onClick={()=>change('sport',s.sport===sp.name?'':sp.name)}><span className="af-sport-icon">{sportIcon(sp.name)}</span><span><b>{sp.name}</b><small>{n(sp.competitions)} comps · {n(sp.fixtures_window)} fixtures</small></span></button>)}
      {others.length>0&&<div className="af-sport t3"><span className="af-sport-icon"><Ellipsis/></span><span><b>Other sports</b><small>{n(others.reduce((a,b)=>a+b.competitions,0))} comps · {others.length} sports</small></span></div>}
      {o&&!o.sports.length&&<div className="af-empty-small">No sports registered yet. The authorized discovery feeds populate this catalogue automatically.</div>}</div>
-    <div className="af-selectors">
+    <details className="af-filter-details"><summary><Settings2 size={14}/> Filter catalogue</summary><div className="af-selectors">
      <label>Sport<select value={s.sport} onChange={e=>change('sport',e.target.value)}><option value="">All sports</option>{(sports.data||[]).map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select></label>
      <label>Country<select value={s.country} disabled={!s.sport} onChange={e=>change('country',e.target.value)}><option value="">All countries</option>{(countries.data||[]).map(x=><option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
      <label>League / Division<select value={s.league} disabled={!s.sport} onChange={e=>change('league',e.target.value)}><option value="">All competitions</option>{(leagues.data||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
      <label>Season<select value={s.season} disabled={!s.league} onChange={e=>change('season',e.target.value)}><option value="">All seasons</option>{(seasons.data||[]).map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>
-    </div></section>
+    </div></details></section>
 
    <section className="af-card af-list"><div className="af-tabs" role="tablist" aria-label="Competition views">{TABS.map(t=><button role="tab" type="button" aria-selected={tab===t} className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{{'Fixtures':<CalendarDays size={16}/>,'Competitions':<Layers3 size={16}/>,'Countries':<Globe2 size={16}/>,'Leagues & Divisions':<Trophy size={16}/>,'Research Coverage':<ShieldCheck size={16}/>}[t]}{t}</button>)}</div>
     {tab==='Fixtures'&&<div role="tabpanel" aria-label="Fixtures">
      <div className="af-list-head"><div><h3>{title} ({n(fx?.total)})</h3><p>{scopeLabel} • {period} • Automatically updated</p></div><div className="af-list-tools"><span className={'af-pill '+(connected?'good':'warn')}><span className="af-dot"/>{connected?'Live feed':'Reconnecting'}</span><span className="af-updated"><RefreshCw size={13}/>Last update: {o?watTime(o.updated_at)+' WAT':'—'}</span></div></div>
      <div className="af-status-filters" role="group" aria-label="Fixture status">{STATUSES.map(([key,label])=><button type="button" key={key} aria-pressed={status===key} className={status===key?'active':''} onClick={()=>setStatus(key)}>{label}</button>)}</div>
      {!o&&data.loading?<div className="af-empty">Loading fixtures…</div>:!fx?.rows.length?<div className="af-empty"><WifiOff/><strong>No {status==='all'?'':status+' '}fixtures in this scope</strong><span>Discovery keeps running; fixtures appear here as soon as authorized sources publish them.</span></div>:
-     <div className="af-table-wrap"><table><thead><tr><th>Date / Time (WAT)</th><th>Fixture</th><th>Competition</th><th>Market</th><th>Odds (range)</th><th>AI prob.</th><th>Pipeline</th><th>Status</th></tr></thead><tbody>{fx.rows.map(r=>{const p=r.pipeline;const ctx=new URLSearchParams({fixture_id:r.id,...(p?{run_id:p.run_id}:{})});return <tr key={r.id}>
+     <div className="af-table-wrap"><table><thead><tr><th>Date / Time (WAT)</th><th>Fixture</th><th>Competition</th><th>Market Focus</th><th>Odds (range)</th><th>AI Prob.</th><th>Status</th></tr></thead><tbody>{fx.rows.map(r=>{const p=r.pipeline;const ctx=new URLSearchParams({fixture_id:r.id,...(p?{run_id:p.run_id}:{})});return <tr key={r.id}>
       <td className="af-nowrap">{watDate(r.kickoff_at)}</td>
       <td><NavLink className="af-fixture" to={'/sports/fixtures?'+ctx} title="Open the fixture's workflow context"><Team name={r.home}/><span className="af-vs">vs</span><Team name={r.away}/></NavLink></td>
       <td><span className="af-comp">{r.competition.name}</span><small className="af-muted">{[r.competition.country,r.sport].filter(Boolean).join(' · ')}</small></td>
       <td>{r.market_focus?<span className="af-market">{r.market_focus}</span>:<span className="af-muted">—</span>}</td>
       <td className="af-nowrap">{r.odds?<><span>{r.odds.min.toFixed(2)} – {r.odds.max.toFixed(2)}</span><small className={'af-fresh '+(r.odds.fresh?'good':'stale')}>{r.odds.fresh?'Fresh':'Stale'} · {r.odds.bookmakers} bk</small></>:<span className="af-muted">No prices</span>}</td>
       <td>{r.prediction?<div className="af-prob" title={r.prediction.interval?`95% interval ${Math.round(r.prediction.interval.lower*100)}–${Math.round(r.prediction.interval.upper*100)}%`:undefined}><b>{Math.round(r.prediction.probability*100)}%</b><small>{r.prediction.outcome}</small><span className="af-prob-bar"><i style={{width:Math.round(r.prediction.probability*100)+'%'}}/></span></div>:<span className="af-muted">No forecast</span>}</td>
-      <td>{p?<NavLink className="af-mini-flow" to={'/sports/orchestrator?run_id='+p.run_id} title={p.stages.map((x,i)=>(i+1)+'. '+stageName(x.key)+': '+words(x.status)).join('\n')}><span className="af-mini-dots" aria-hidden="true">{p.stages.map(x=><i key={x.key} className={'tone-'+toneOf(x.status)}/>)}</span><small>{p.current_stage?stageName(p.current_stage)+' · '+words(p.current_status):'All stages settled'}</small></NavLink>:<span className="af-muted">Not queued</span>}</td>
+
       <td><span className={'af-status '+(p?RUN_TONE[p.status]||'muted':'muted')}>{p?.status==='COMPLETED'||p?.status==='MONITORING'?<CheckCircle2 size={13}/>:p?.status==='BLOCKED'||p?.status==='FAILED'?<ShieldAlert size={13}/>:<Clock3 size={13}/>}{p?words(p.status):'Awaiting run'}</span>{p?.outcome&&<small className="af-outcome">{words(p.outcome)} at {stageName(p.outcome_stage)}</small>}</td></tr>})}</tbody></table></div>}
      {fx&&fx.total>0&&<div className="af-pagination"><span>Showing {n(first)} – {n(lastRow)} of {n(fx.total)} fixtures</span><nav aria-label="Fixture pages"><button type="button" aria-label="Previous page" disabled={fx.page<=1} onClick={()=>setPage(fx.page-1)}><ChevronLeft size={16}/></button>{pageList(fx.page,fx.pages).map((p,i)=>p==='…'?<span key={'gap'+i} className="af-gap">…</span>:<button type="button" key={p} aria-current={p===fx.page?'page':undefined} className={p===fx.page?'active':''} onClick={()=>setPage(p)}>{n(p)}</button>)}<button type="button" aria-label="Next page" disabled={fx.page>=fx.pages} onClick={()=>setPage(fx.page+1)}><ChevronRight size={16}/></button></nav></div>}
     </div>}
@@ -125,14 +133,14 @@ export default function AutonomousFixtures(){
    </section></div>
 
    <aside className="af-side">
-    <section className="af-card"><div className="af-card-head"><h3><ShieldCheck size={19}/> Automation Engine</h3><span className={'af-pill '+(online?'good':'warn')}><span className="af-dot"/>{online?'Running':o?words(o.automation.runtime.status):'—'}</span></div>
+    <section className="af-card"><div className="af-card-head"><h3><Settings2 size={26}/> Automation Engine</h3><span className={'af-pill '+(online?'good':'warn')}><span className="af-dot"/>{online?'Running':o?words(o.automation.runtime.status):'—'}</span></div>
      <ul className="af-engines">{(o?.automation.engines||[]).map(e=><li key={e.stage}><span className={'af-engine-icon '+e.state.toLowerCase()}>{e.state==='ACTIVE'?<CheckCircle2 size={16}/>:e.state==='BLOCKED'||e.state==='OFFLINE'?<ShieldAlert size={16}/>:<Clock3 size={16}/>}</span><span><b>{e.name}</b><small>{e.detail}</small></span><em className={e.state.toLowerCase()}>{words(e.state)}</em></li>)}
       {o&&<li><span className={'af-engine-icon '+(online?'active':'offline')}><RefreshCw size={16}/></span><span><b>Continuous update (scheduled)</b><small>{o.automation.runtime.finished_at?'Last cycle '+watTime(o.automation.runtime.finished_at)+' WAT':'No cycle reported yet'}</small></span><em className={online?'active':'offline'}>Every {o.automation.interval_seconds}s</em></li>}</ul></section>
     <section className="af-card"><div className="af-card-head"><div><h3><Activity size={19}/> Live Activity</h3><p>Recorded pipeline stage changes</p></div><NavLink className="af-action" to="/sports/orchestrator"><RefreshCw size={14}/>View log</NavLink></div>
      <ol className="af-activity">{o?.activity.length?o.activity.map((a,i)=><li key={i} className={'tone-'+toneOf(a.status)}><time>{watTime(a.at)}</time><span><b>{a.stage_name}: {words(a.status)}</b>{a.fixture&&<small>{a.fixture}</small>}{a.failure_code&&a.status!=='VERIFIED'&&<small className="af-muted">{a.failure_code}</small>}</span></li>):<li className="af-empty-small">No stage activity recorded yet.</li>}</ol></section>
-    <section className="af-card"><div className="af-card-head"><h3><Database size={19}/> Source &amp; Update Health</h3></div>
+    <details className="af-card af-source-details"><summary><Database size={17}/> Source &amp; Update Health</summary>
      <div className="af-health-rows"><div><span>Authorized sources</span><b>{n(o?.automation.authorized_sources)}</b></div>{Object.entries(o?.automation.acquisition_jobs||{}).map(([k,v])=><div key={k}><span>Acquisition jobs · {words(k)}</span><b>{n(v)}</b></div>)}<div><span>Live update stream</span><b>{connected?'Connected':'Reconnecting'}</b></div><div><span>Last successful cycle</span><b>{o?.automation.runtime.last_success_at?watDate(o.automation.runtime.last_success_at):'None'}</b></div></div>
-     <button type="button" className="af-action wide" onClick={refresh}><RefreshCw size={14}/>Refresh view</button></section>
+     <button type="button" className="af-action wide" onClick={refresh}><RefreshCw size={14}/>Refresh view</button></details>
    </aside></div>
   <p className="af-disclaimer">Database-backed records only. Prices, forecasts and statuses appear only when persisted evidence exists; missing data is shown as missing. Paper mode remains enforced.</p>
  </div>;

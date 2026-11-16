@@ -45,6 +45,16 @@ def standings(db, competition_id, season_id=None, as_of=None, scope='overall'):
                 source=dict(id=source.id, name=source.name, snapshot_id=snapshot.id, official=snapshot.official,
                     captured_at=snapshot.captured_at, verified_at=snapshot.verified_at,
                     source_url=snapshot.source_url, source_reference=snapshot.source_reference, content_hash=snapshot.content_hash, reviewed_by=snapshot.reviewed_by, review_status=snapshot.review_status, provenance=snapshot.provenance))
+    # A separately labelled community cache is available without manual review.
+    # It does not enter verified result, snapshot, research or prediction tables.
+    from app.modules.standings.service import report as csv_report
+    csv_table = csv_report(db, competition_id, season_id, cutoff, scope)
+    if csv_table:
+        return csv_table
+    from app.modules.autonomy.community_tables import report as community_report
+    community = community_report(db, competition_id, season_id, cutoff, scope)
+    if community:
+        return community
     sport = db.get(m.Sport, competition.sport_id)
     if scope != 'overall' or sport.name.lower() != 'football':
         return dict(mode='unavailable', scope=scope, season_id=season_id, as_of=cutoff, rows=[], source=None,

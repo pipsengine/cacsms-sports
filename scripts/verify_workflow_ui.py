@@ -43,7 +43,7 @@ def main():
   for index,href in enumerate(links):
    assert urlparse(href).path=='/sports/'+TARGETS[index]
    page.goto(urljoin(BASE,href),wait_until='domcontentloaded')
-   page.locator('.page-heading h1').wait_for();settled()
+   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith('/research') else '.page-heading h1').wait_for();settled()
    query=parse_qs(urlparse(href).query)
    if query.get('run_id'):
     page.locator('.workflow-context .workflow-context-metrics').wait_for()
@@ -58,8 +58,8 @@ def main():
   page.locator('.pipeline-stage-detail h3',has_text='Analyse').wait_for()
   # Fixtures & Competitions: real overview data, aggregate process flow and tabs.
   page.goto(BASE+'/sports/fixtures',wait_until='domcontentloaded')
-  page.locator('.af-root .sf-step').first.wait_for();settled()
-  assert page.locator('.af-root .sf-step').count()==12
+  page.locator('.af-reference-flow li').first.wait_for();settled()
+  assert page.locator('.af-reference-flow li').count()==5
   for tab in ('Competitions','Countries','Leagues & Divisions','Research Coverage','Fixtures'):
    page.get_by_role('tab',name=tab).click();settled()
   nav=(ROOT/'apps/web/src/navigation.ts').read_text(encoding='utf-8')
@@ -67,7 +67,7 @@ def main():
   assert len(slugs)==29
   for slug in slugs:
    page.goto(BASE+'/sports/'+slug,wait_until='domcontentloaded')
-   page.locator('.page-heading h1').wait_for();settled()
+   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith('/research') else '.page-heading h1').wait_for();settled()
   page.goto(BASE+'/sports/dashboard',wait_until='domcontentloaded')
   page.get_by_role('button',name='Collapse sidebar',exact=True).click();page.wait_for_timeout(300)
   assert page.locator('.main').evaluate('(e)=>e.getBoundingClientRect().left')==0

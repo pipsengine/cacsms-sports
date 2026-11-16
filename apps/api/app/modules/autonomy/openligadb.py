@@ -69,17 +69,20 @@ def collect(factory,fetcher=fetch,at=None):
   cache=db.get(m.ProviderSyncState,key)
   if cache is None:
    cache=m.ProviderSyncState(id=key,source_id=source.id,payload={},failures=0);db.add(cache);db.flush()
-  if cache.next_check_at and utc(cache.next_check_at)>at:
+  if cache.next_check_at and utc(cache.next_check_at)>at and (cache.failures or cache.payload.get('table_version')==2):
    return {'enabled':True,'status':'CACHED','fixtures':cache.payload.get('fixtures',0),'next_check_at':cache.next_check_at.isoformat(),'errors':[]}
   group=cache.payload.get('group');last_change=cache.last_change;last_full=cache.last_full_at
+  needs_tables=cache.payload.get('table_version')!=2
  try:
   marker=fetcher(BASE+'/getlastchangedate/bl1/'+str(season)+'/'+str(group)) if group else None
   if marker is not None and not isinstance(marker,str):raise ValueError('Invalid change timestamp')
-  changed=marker is None or marker!=last_change or not last_full or at-utc(last_full)>=timedelta(days=1)
+  changed=needs_tables or marker is None or marker!=last_change or not last_full or at-utc(last_full)>=timedelta(days=1)
   if changed:
    matches=fetcher(BASE+'/getmatchdata/bl1/'+str(season))
    rows,group,live=normalize(matches,at)
    if not rows:raise ValueError('Provider returned no fixtures for the current season')
+   from app.modules.autonomy.community_tables import build_tables
+   tables=build_tables(matches,at)
    dates=[datetime.fromisoformat(row['kickoff']).date() for row in rows]
    coverage_start,coverage_end=min(dates),max(dates)
    season_label=str(season)+'/'+str(season+1)[-2:]
@@ -100,6 +103,7 @@ def collect(factory,fetcher=fetch,at=None):
       registered=m.CompetitionSeason(competition_id=competition.id,label=season_label,start_date=coverage_start,end_date=coverage_end,is_current=True);db.add(registered);db.flush()
      if registered.start_date<=datetime.fromisoformat(item['kickoff']).date()<=registered.end_date:
       fixture.season_id=registered.id
+     competition_id,season_id=competition.id,registered.id
    if group:marker=fetcher(BASE+'/getlastchangedate/bl1/'+str(season)+'/'+str(group))
   else:
    rows=None;live=False
@@ -109,7 +113,7 @@ def collect(factory,fetcher=fetch,at=None):
    # Outside live windows, a few centralized checks per day; full data only on change or daily refresh.
    seconds=75 if live else 6*60*60
    cache.next_check_at=at+timedelta(seconds=seconds+random.randint(5,45))
-   if changed:cache.last_full_at=at;cache.payload={'group':group,'fixtures':len(rows),'attribution':ATTRIBUTION,'licence_url':LICENCE}
+   if changed:cache.last_full_at=at;cache.payload={'group':group,'fixtures':len(rows),'attribution':ATTRIBUTION,'licence_url':LICENCE,'table_version':2,'community_tables':tables,'competition_id':competition_id,'season_id':season_id,'standings_url':BASE+'/getmatchdata/bl1/'+str(season)}
    return {'enabled':True,'status':'SYNCED' if changed else 'UNCHANGED','fixtures':cache.payload.get('fixtures',0),'next_check_at':cache.next_check_at.isoformat(),'errors':[]}
  except Exception as exc:
   with factory.begin() as db:

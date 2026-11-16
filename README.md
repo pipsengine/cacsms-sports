@@ -110,7 +110,7 @@ apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements.txt
 npm --prefix apps/web ci
 ```
 
-Set `DATABASE_URL` in the root `.env` for your local PostgreSQL database. Percent-encode special characters in the URL password (for example, `@` becomes `%40`). Then run `npm run dev` from the repository root; it starts the API, local scheduler and frontend together. The `.env` and `.venv` are ignored by Git.
+Set `DATABASE_URL` in the root `.env` for your local PostgreSQL database. Percent-encode special characters in the URL password (for example, `@` becomes `%40`). Then run `npm run dev` from the repository root; it applies Alembic migrations before starting the API, local scheduler and frontend together. If migration fails, startup stops so services cannot run against an outdated schema. The `.env` and `.venv` are ignored by Git.
 
 On this workstation, the API virtual environment reuses the already installed Python packages (`--system-site-packages`); `pip check` confirms their dependencies are compatible.
 
@@ -125,3 +125,15 @@ Authorized football CSV conversion, pending-review standings imports, source cov
 ## Twelve-stage autonomous PAPER pipeline
 
 The dashboard now links all twelve stage cards to their assigned workspaces with shared fixture/run context. One leased, event-driven backend runner performs actual operations, stores evidence receipts and retries, and continuously monitors paper activity. See [operation contracts, configuration, tests and live limitations](docs/AUTONOMOUS_PIPELINE.md). Migrations `0010` and `0011` are required on other installations.
+
+## Autonomous league tables
+
+The existing scheduled autonomy worker now builds overall, home and away research tables, last-five form, and league goal/win analytics from finished OpenLigaDB matches. It runs without an open browser, uses the existing provider cache/change checks and retry backoff, and respects source revocation. `SPORTS_OPENLIGADB_ENABLED=1` enables this source; other competitions still require a configured authorized provider.
+
+These tables are labelled **Community Table**, with attribution and capture time. They are separate from reviewed standings snapshots and independently verified results, and are not passed into prediction or settlement as verified evidence. Official deductions and competition-specific tie-breakers are not applied. Reviewed snapshots take precedence. The page refreshes automatically and selects an available competition/season; the sidebar is unchanged.
+
+`npm run dev` runs the API, scheduler and web app together. Production deployments need their configured worker and scheduler running. UI regression checks: `python scripts/verify_league_ui.py` (isolated browser test responses).
+
+## Standings acquisition API
+
+The supplied standings API package is integrated with canonical records, existing administrator authentication, the autonomous scheduler, and the League Tables & Statistics page. See [endpoints, source registration, correction history and tests](docs/STANDINGS_API_INTEGRATION.md). Football-Data CSV acquisition starts only for explicitly authorized registrations; the sidebar is unchanged.

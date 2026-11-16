@@ -165,3 +165,48 @@ def test_revoked_acquisition_source_is_not_fetched(factory,monkeypatch):
  def forbidden(url):raise AssertionError('Revoked source must not receive a request')
  result=jobs.run_job('revoked-job',fetcher=forbidden)
  assert result['status']=='REJECTED' and result['error_code']=='SOURCE_REVOKED'
+
+
+def test_autonomous_community_tables_scopes_and_revocation(factory,monkeypatch):
+ from app.modules.autonomy import openligadb
+ from app.modules.research import catalog
+ at=datetime.now(timezone.utc)-timedelta(seconds=10)
+ monkeypatch.setenv('SPORTS_OPENLIGADB_ENABLED','1')
+ def fetch(url):
+  if 'getlastchangedate' in url:return 'changed'
+  return [dict(matchID=401,matchDateTimeUTC=(at-timedelta(days=1)).isoformat(),team1={'teamName':'Home'},team2={'teamName':'Away'},
+               group={'groupOrderID':1},matchIsFinished=True,matchResults=[
+                {'resultTypeKind':'HalfTime','pointsTeam1':9,'pointsTeam2':0},
+                {'resultTypeKind':'After90Minutes','pointsTeam1':2,'pointsTeam2':1}])]
+ report=openligadb.collect(factory,fetch,at)
+ assert report['status']=='SYNCED',report
+ with factory() as db:
+  fixture=db.scalar(select(m.Fixture))
+  overall=catalog.standings(db,fixture.competition_id,fixture.season_id,at+timedelta(seconds=1))
+  assert overall['mode']=='community_computed'
+  assert overall['source']['verified_at'] is None and overall['source']['official'] is False
+  assert overall['rows'][0]['club']=='Home' and overall['rows'][0]['goals_for']==2
+  assert overall['community_statistics']['matches']==1 and overall['community_statistics']['home_wins']==1
+  assert overall['community_statistics']['goals_trend'][0]['value']==3
+  home=catalog.standings(db,fixture.competition_id,fixture.season_id,at+timedelta(seconds=1),'home')
+  away=catalog.standings(db,fixture.competition_id,fixture.season_id,at+timedelta(seconds=1),'away')
+  assert next(r for r in home['rows'] if r['club']=='Away')['played']==0
+  assert next(r for r in away['rows'] if r['club']=='Away')['played']==1
+  assert next(r for r in overall['rows'] if r['club']=='Home')['form']==['W']
+  assert catalog.standings(db,fixture.competition_id,fixture.season_id,at-timedelta(hours=1))['rows']==[]
+  for model in (m.Result,m.StandingsSnapshot,m.Prediction,m.Research):
+   assert db.scalar(select(func.count()).select_from(model))==0
+  league_id,season_id=fixture.competition_id,fixture.season_id
+ with factory.begin() as db:db.get(m.Source,openligadb.SOURCE_ID).enabled=False
+ with factory() as db:assert catalog.standings(db,league_id,season_id,at+timedelta(seconds=2))['rows']==[]
+
+
+def test_community_scores_never_guess_final_or_accept_future():
+ from app.modules.autonomy.community_tables import build_tables
+ at=datetime.now(timezone.utc)
+ match=dict(matchID=1,matchDateTimeUTC=(at-timedelta(days=1)).isoformat(),team1={'teamName':'Home'},team2={'teamName':'Away'},matchIsFinished=True,
+            matchResults=[dict(resultTypeKind='HalfTime',pointsTeam1=3,pointsTeam2=0)])
+ for values in [match,{**match,'matchIsFinished':False},
+                {**match,'matchDateTimeUTC':(at+timedelta(days=1)).isoformat(),'matchResults':[dict(resultTypeKind='After90Minutes',pointsTeam1=3,pointsTeam2=0)]},
+                {**match,'matchResults':[dict(resultTypeKind='After90Minutes',pointsTeam1=True,pointsTeam2=0)]}]:
+  assert all(row['played']==0 for row in build_tables([values],at)['overall'])

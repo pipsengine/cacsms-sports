@@ -1,6 +1,6 @@
 // Starts the FastAPI API (port 8000), the background task scheduler and the Vite web app (port 5173) together.
 // Usage from the repository root: npm run dev   (Ctrl+C stops both)
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,6 +70,18 @@ process.on('SIGTERM', () => shutdown(0));
 if (!process.env.DATABASE_URL) console.warn('DATABASE_URL not set (add it to .env); the API will use its built-in default.');
 
 const pyEnv = { ...process.env, PYTHONPATH: root, PYTHONUNBUFFERED: '1' };
+// Keep the schema current before either API or scheduler can query new columns.
+console.log('[db] Applying database migrations...');
+const migration = spawnSync(venvPython, ['-m', 'alembic', 'upgrade', 'head'], {
+  cwd: apiDir,
+  env: pyEnv,
+  stdio: 'inherit',
+});
+if (migration.error || migration.status !== 0) {
+  console.error('[db] Database migration failed; services were not started. Check PostgreSQL and DATABASE_URL in .env.');
+  if (migration.error) console.error(migration.error.message);
+  process.exit(migration.status || 1);
+}
 // --timeout-graceful-shutdown: open live-update (SSE) streams would otherwise block reloads.
 start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
   cwd: apiDir,
