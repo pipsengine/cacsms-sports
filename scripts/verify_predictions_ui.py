@@ -1,5 +1,5 @@
 """AI Predictions layout check using isolated (mocked) API responses. Values are test fixtures only."""
-import json,os
+import json,os,time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[1]
@@ -95,6 +95,19 @@ def main():
         page.get_by_text('No 1X2 forecast from an ACTIVE model before the cutoff.').wait_for()
         assert page.get_by_text('No ACTIVE-model forecast to summarise.').count()==1
         assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
+        # Stale backend ("Unknown resource"): background refreshes must not flicker the error/empty state.
+        def stale(route):
+            time.sleep(0.4);route.fulfill(status=404,content_type='application/json',body=json.dumps({'detail':'Unknown resource'}))
+        page.route('**/market-scanner/fixtures/**',stale)
+        page.get_by_role('button',name='Run Prediction').click()
+        page.locator('.dmr-error',has_text='Unknown resource').wait_for()
+        page.evaluate('''()=>{window.__gaps=0;window.__loading=0;window.__t=setInterval(()=>{if(!document.querySelector('.dmr-error'))window.__gaps++;if(document.body.innerText.includes('Loading predictions'))window.__loading++},20)}''')
+        for _ in range(2):
+            page.get_by_role('button',name='Run Prediction').click();page.wait_for_timeout(900)
+        gaps,loading=page.evaluate('clearInterval(window.__t),[window.__gaps,window.__loading]')
+        assert gaps==0 and loading==0,('flicker during refresh',gaps,loading)
+        page.unroute('**/market-scanner/fixtures/**',stale)
+        page.get_by_role('button',name='Run Prediction').click();page.get_by_text('No ACTIVE-model forecast to summarise.').wait_for()
         page.set_viewport_size({'width':390,'height':844});page.wait_for_timeout(200)
         assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         page.get_by_label('Fixture',exact=True).select_option('f1');page.locator('.dmr-home h3',has_text='FC Bayern').wait_for()
