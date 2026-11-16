@@ -519,6 +519,9 @@ app.include_router(accumulator_router)
 # Automatic Singles (shared programme engine, runs inside the autonomy cycle)
 from app.modules.strategies.singles_routes import router as singles_router
 app.include_router(singles_router)
+# Jackpot Engine (shared programme engine, runs inside the autonomy cycle)
+from app.modules.strategies.jackpot_routes import router as jackpot_router
+app.include_router(jackpot_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

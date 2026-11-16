@@ -5,6 +5,8 @@ from itertools import combinations
 from math import prod
 from itertools import islice
 
+# Jackpot tickets must reach this combined price (previously written as combined*100 >= 200,000,000).
+JACKPOT_MIN_COMBINED_ODDS=Decimal('2000000')
 PROGRAMMES={
  'accumulator':{'min_legs':2,'max_legs':12,'max_odds':Decimal('1000'),'daily_cap':5},
  'singles':{'min_legs':1,'max_legs':1,'max_odds':Decimal('1000'),'daily_cap':25},
@@ -49,7 +51,7 @@ def select_tickets(candidates,programme,limit=5,draw_legs=None,existing_signatur
    if signature in signatures:continue
    combined=prod((c.odds for c in group),start=Decimal('1'))
    if combined>cfg['max_odds']:continue
-   if programme=='jackpot' and combined*Decimal('100')<Decimal('200000000'):continue
+   if programme=='jackpot' and combined<JACKPOT_MIN_COMBINED_ODDS:continue
    if programme=='rollover' and not (Decimal('1.45')<=combined<=Decimal('2.10')):continue
    # Independence is NOT assumed for combined win probability; bound only.
    upper=min(c.probability for c in group)

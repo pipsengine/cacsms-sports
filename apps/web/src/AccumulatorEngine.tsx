@@ -7,19 +7,22 @@ import './MarketIntelligence.css';
 import './AIQualification.css';
 import './AccumulatorEngine.css';
 
-type Key='accumulator'|'singles';
+type Key='accumulator'|'singles'|'jackpot';
 const CONFIG:Record<Key,{title:string;description:string;pipeline:string;pipelineSub:string;label:string;empty:string}>={
  accumulator:{title:'Accumulator Engine',description:'Multi-selection optimisation using only qualified opportunities, with evidence, risk and configuration controls.',
   pipeline:'Autonomous Programme Pipeline',pipelineSub:'Fetch Qualified Opportunities → Select & Optimise → Validate → Build Ticket → Publish',label:'ACCUMULATOR',
   empty:'No runs recorded yet. The engine records one paper composition decision every 15 minutes.'},
  singles:{title:'Automatic Singles',description:'Single-outcome selections with daily caps and independent risk gates.',
   pipeline:'Autonomous Singles Pipeline',pipelineSub:'From qualified opportunities to published singles (fully automated)',label:'SINGLES',
-  empty:'No runs recorded yet. The engine records a paper run every 5 minutes, including blocked runs.'}};
+  empty:'No runs recorded yet. The engine records a paper run every 5 minutes, including blocked runs.'},
+ jackpot:{title:'Jackpot Engine',description:'High-odds candidate screening and ticket generation using qualified opportunities and strict risk controls.',
+  pipeline:'Autonomous Jackpot Pipeline',pipelineSub:'From qualified opportunities to paper jackpot (fully automated)',label:'JACKPOT',
+  empty:'No runs recorded yet. The engine records a paper run every 15 minutes, including blocked runs.'}};
 type Step={key:string;name:string;sub:string;status:string;detail:string};
 type Leg={qualification_id:string;fixture:string;kickoff_at:string;market_key:string;outcome_key:string;odds:number;probability:number;ev:number;bookmaker:string};
 type Run={id:string;number:number|null;created_at:string;status:string;selections:number;combined_odds:number|null;reasons:string[];trigger:string;candidate_count:number|null;
  probability_lower_bound:number|null;probability_upper_bound:number|null;legs:Leg[];tickets:TicketT[];settlement:string|null};
-type Policy={min_legs:number;max_legs:number;max_odds:number;daily_cap:number;freshness_minutes:number;mode:string;schedule_minutes:number;paper_stake:number|null;cap_unit:string;one_per_fixture_per_day:boolean};
+type Policy={min_legs:number;max_legs:number;max_odds:number;daily_cap:number;freshness_minutes:number;mode:string;schedule_minutes:number;paper_stake:number|null;cap_unit:string;one_per_fixture_per_day:boolean;min_combined_odds:number|null};
 type TicketT={legs:Leg[];combined_odds:number;paper_stake:number|null;potential_return:number|null};
 type Overview={mode:string;policy:Policy;readiness:string;recorded_runs:number;completed:number;blocked:number;avg_selections:number|null;avg_combined_odds:number|null;
  trend:{runs:number|null;completed:number|null;blocked:number|null;avg_selections:number|null;avg_odds:number|null;success_rate_pp:number|null};eligible_candidates:number;
@@ -33,8 +36,10 @@ const fmt=(v?:string|null)=>v?new Intl.DateTimeFormat('en-GB',{day:'2-digit',mon
 const clock=(v?:string|null)=>v?new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Africa/Lagos'}).format(new Date(v))+' WAT':'—';
 const n=(v?:number|null,d=0)=>v==null?'—':v.toLocaleString('en-NG',{minimumFractionDigits:d,maximumFractionDigits:d});
 const pct=(v?:number|null)=>v==null?'—':v.toFixed(1)+'%';
+const big=(v?:number|null)=>v==null?'—':v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e4?(v/1e3).toFixed(1)+'K':v.toFixed(2);
 const REASON:Record<string,string>={INSUFFICIENT_FRESH_QUALIFIED_OPPORTUNITIES:'Not enough fresh qualified opportunities',DAILY_CAP_REACHED:'Daily cap reached',NO_VALID_DIVERSIFIED_COMBINATION:'No valid diversified combination',
- ODDS_NOT_FRESH:'Odds older than 15 min',QUALITY_GATE_NOT_PASSED:'Quality gate not passed',MODEL_NOT_ACTIVE_APPROVED:'Model not active/approved',NO_POSITIVE_EV:'No positive EV',FIXTURE_STARTED:'Fixture started',MARKET_MAPPING_MISMATCH:'Market mapping mismatch'};
+ ODDS_NOT_FRESH:'Odds older than 15 min',QUALITY_GATE_NOT_PASSED:'Quality gate not passed',MODEL_NOT_ACTIVE_APPROVED:'Model not active/approved',NO_POSITIVE_EV:'No positive EV',FIXTURE_STARTED:'Fixture started',MARKET_MAPPING_MISMATCH:'Market mapping mismatch',
+ JACKPOT_ODDS_UNREACHABLE:'Eligible prices cannot reach the jackpot odds floor',NO_VALID_SELECTION:'No valid selection',ALREADY_SELECTED_TODAY:'Already selected today'};
 const tabs=[{name:'Overview',icon:LayoutGrid},{name:'Programme Rules',icon:SlidersHorizontal},{name:'Run History',icon:History},{name:'Validation Requirements',icon:ShieldCheck},{name:'Programme Analytics',icon:BarChart3}];
 function RunStatus({value}:{value:string}){return <span className={'mi-chip '+(value==='COMPLETED'?'good':'bad')}>{value==='COMPLETED'?<CheckCircle2 size={12}/>:<XCircle size={12}/>}{value==='COMPLETED'?'Completed':'Blocked'}</span>}
 function Trend({value,unit='%',invert=false}:{value?:number|null;unit?:string;invert?:boolean}){if(value==null)return null;const up=value>=0;return <small className={'aq-trend '+((invert?!up:up)?'good':'bad')}>{up?'↑':'↓'} {up?'+':''}{value}{unit}</small>}
@@ -50,9 +55,11 @@ function Chart({points}:{points:{date:string;completion_rate:number}[]}){
 
 export default function AccumulatorEngine(){return <ProgrammeEngine programme="accumulator"/>}
 export function SinglesEngine(){return <ProgrammeEngine programme="singles"/>}
+export function JackpotEngine(){return <ProgrammeEngine programme="jackpot"/>}
 
 export function ProgrammeEngine({programme}:{programme:Key}){
- const API=`/api/v1/sports/programmes/${programme}/`;const C=CONFIG[programme];const singles=programme==='singles';
+ const API=`/api/v1/sports/programmes/${programme}/`;const C=CONFIG[programme];const singles=programme==='singles',jackpot=programme==='jackpot';
+ const odds=(v?:number|null)=>jackpot?n(v,0):v?.toFixed(2)??'—';
  const {revision,refresh}=useResearchScope();
  const[tab,setTab]=useState('Overview'),[page,setPage]=useState(0),[open,setOpen]=useState('');
  const ov=useResearchRemote<Overview>(API+'overview',revision);
@@ -64,10 +71,11 @@ export function ProgrammeEngine({programme}:{programme:Key}){
  const kpis=[{t:'Recorded Runs',v:n(o?.recorded_runs),icon:Layers3,tone:'blue',trend:<Trend value={o?.trend.runs}/>},{t:'Completed',v:n(o?.completed),icon:CheckCircle2,tone:'green',trend:<Trend value={o?.trend.completed}/>},
   {t:'Blocked',v:n(o?.blocked),icon:XCircle,tone:'red',trend:<Trend value={o?.trend.blocked} invert/>},
   ...(singles?[{t:'Success Rate',v:pct(o?.success_rate),icon:Target,tone:'orange',trend:<Trend value={o?.trend.success_rate_pp} unit=" pp"/>},{t:'Avg. Odds',v:n(o?.avg_combined_odds,2),icon:BarChart3,tone:'blue',trend:<Trend value={o?.trend.avg_odds} unit=""/>}]
+   :jackpot?[{t:'Avg. Legs',v:n(o?.avg_selections,1),icon:Target,tone:'orange',trend:<Trend value={o?.trend.avg_selections} unit=""/>},{t:'Avg. Odds',v:big(o?.avg_combined_odds),icon:BarChart3,tone:'blue',trend:<Trend value={o?.trend.avg_odds}/>}]
    :[{t:'Avg. Selections',v:n(o?.avg_selections,1),icon:Target,tone:'purple',trend:<Trend value={o?.trend.avg_selections} unit=""/>},{t:'Avg. Combined Odds',v:n(o?.avg_combined_odds,2),icon:BarChart3,tone:'blue',trend:<Trend value={o?.trend.avg_odds}/>}])];
  const firstFixture=(r:Run)=>r.legs[0]?r.legs[0].fixture+(r.selections>1&&singles?` +${r.selections-1} more`:''):'—';
- const runTable=(rows:Run[],full=false)=><div className="mi-table"><table><thead><tr><th>#</th><th>Run Time</th>{singles?<><th>Selection (Fixture)</th>{full&&<th>Singles</th>}<th>Odds</th></>:<><th>Selections</th><th>Combined Odds</th></>}{full&&<><th>Probability bounds</th><th>Reasons / legs</th><th>Paper result</th></>}<th>Status</th></tr></thead>
-  <tbody>{rows.map(r=><React.Fragment key={r.id}><tr className={full&&r.legs.length?'qo-row':''} onClick={()=>full&&setOpen(open===r.id?'':r.id)}><td><b>{r.number}</b></td><td>{fmt(r.created_at)}</td>{singles&&<td>{firstFixture(r)}</td>}{(!singles||full)&&<td>{r.selections}</td>}<td><b>{r.combined_odds?.toFixed(2)??'—'}</b></td>
+ const runTable=(rows:Run[],full=false)=><div className="mi-table"><table><thead><tr><th>#</th><th>Run Time</th>{singles?<><th>Selection (Fixture)</th>{full&&<th>Singles</th>}<th>Odds</th></>:jackpot?<><th>Legs</th><th>Total Odds</th></>:<><th>Selections</th><th>Combined Odds</th></>}{full&&<><th>Probability bounds</th><th>Reasons / legs</th><th>Paper result</th></>}<th>Status</th></tr></thead>
+  <tbody>{rows.map(r=><React.Fragment key={r.id}><tr className={full&&r.legs.length?'qo-row':''} onClick={()=>full&&setOpen(open===r.id?'':r.id)}><td><b>{r.number}</b></td><td>{fmt(r.created_at)}</td>{singles&&<td>{firstFixture(r)}</td>}{(!singles||full)&&<td>{r.selections}</td>}<td><b>{odds(r.combined_odds)}</b></td>
    {full&&<><td>{r.probability_upper_bound!=null?`${(r.probability_lower_bound!*100).toFixed(1)}–${(r.probability_upper_bound*100).toFixed(1)}%`:'—'}</td><td>{r.reasons.length?r.reasons.map(x=>REASON[x]||x).join(', '):`${r.legs.length} legs (click to expand)`}</td><td>{r.settlement||(r.status==='COMPLETED'?'Awaiting results':'—')}</td></>}
    <td><RunStatus value={r.status}/></td></tr>
    {full&&open===r.id&&<tr className="ae-legs"><td colSpan={9}>{r.legs.map(l=><div key={l.qualification_id}><b>{l.fixture}</b> · {l.market_key} {l.outcome_key} @ {l.odds.toFixed(2)} ({l.bookmaker}) · p {(l.probability*100).toFixed(1)}% · EV {l.ev>0?'+':''}{l.ev}%</div>)}</td></tr>}</React.Fragment>)}</tbody></table></div>;
@@ -82,7 +90,7 @@ export function ProgrammeEngine({programme}:{programme:Key}){
   <div className="dmr-tabs aip-tabs mi-tabs" role="tablist" aria-label={C.title+' views'}>{tabs.map(t=><button type="button" role="tab" aria-selected={tab===t.name} key={t.name} onClick={()=>setTab(t.name)} className={tab===t.name?'active':''}><t.icon size={18}/>{t.name}</button>)}</div>
   {tab==='Overview'?<div className="ae-grid">
    <section className="dmr-card"><div className="dmr-card-head"><h3><Settings2/>Programme Configuration</h3><span className="mi-chip muted" title="Policy is defined in code (optimizer.PROGRAMMES) and applied on every path"><Lock size={12}/>Read-only</span></div>
-    {[...(singles?[['Programme',<span className="mi-chip info">{C.label}</span>]]:[]),['Mode',<span className="mi-chip info">{o?.mode||'PAPER'}</span>],['Readiness',<span className={'mi-chip '+(o?.readiness==='READY_FOR_QUALIFIED_DATA'?'good':'warn')}>{o?.readiness||'—'}</span>],['Min Legs',p?.min_legs],['Max Legs',p?.max_legs],['Max Odds',p?n(p.max_odds,2):'—'],['Daily Cap',p?.daily_cap],...(singles?[['Paper stake',p?.paper_stake?`₦${p.paper_stake}`:'—'],['Used today',o?`${o.today.used} / ${o.today.cap}`:'—']]:[]),['Odds freshness',p?`≤ ${p.freshness_minutes} min`:'—']].map(([k,v]:any)=><div className="mi-row" key={k}><span>{k}</span><b>{v??'—'}</b></div>)}</section>
+    {[...(programme!=='accumulator'?[['Programme',<span className="mi-chip info">{C.label}</span>]]:[]),['Mode',<span className="mi-chip info">{o?.mode||'PAPER'}</span>],['Readiness',<span className={'mi-chip '+(o?.readiness==='READY_FOR_QUALIFIED_DATA'?'good':'warn')}>{o?.readiness||'—'}</span>],['Min Legs',p?.min_legs],['Max Legs',p?.max_legs],['Max Odds',p?n(p.max_odds,jackpot?0:2):'—'],...(jackpot?[['Min Total Odds',p?.min_combined_odds?n(p.min_combined_odds):'—']]:[]),['Daily Cap',p?.daily_cap],...(singles?[['Paper stake',p?.paper_stake?`₦${p.paper_stake}`:'—'],['Used today',o?`${o.today.used} / ${o.today.cap}`:'—']]:[]),['Odds freshness',p?`≤ ${p.freshness_minutes} min`:'—']].map(([k,v]:any)=><div className="mi-row" key={k}><span>{k}</span><b>{v??'—'}</b></div>)}</section>
    <section className="dmr-card"><div className="dmr-card-head"><h3><Ticket/>Recent Programme Runs</h3><button type="button" className="ae-link" onClick={()=>setTab('Run History')}>View All <ArrowRight size={14}/></button></div>
     {recent.data?.items.length?runTable(recent.data.items):<Empty>{recent.loading?'Loading…':C.empty}</Empty>}</section>
    <section className="dmr-card ae-mode"><div className="dmr-card-head"><h3><Layers3/>Execution Mode</h3></div><div className="ae-paper"><b>PAPER</b><small>Simulation only • No live wagers</small></div>
@@ -92,13 +100,14 @@ export function ProgrammeEngine({programme}:{programme:Key}){
     {(o?.validation.items||[]).map(v=><div className="aq-gate" key={v.key} title={v.detail}><span>{v.name}</span><b>{pct(v.pass_rate)}</b><i><em style={{width:(v.pass_rate||0)+'%'}}/></i></div>)}
     {o&&!o.validation.qualified_upcoming&&<p className="dmr-caption">No qualified opportunities for upcoming fixtures yet, so there is nothing to validate.</p>}</section>
    <section className="dmr-card"><div className="dmr-card-head"><h3><BarChart3/>Programme Analytics <small>(last {n(o?.analytics.runs)} runs)</small></h3></div>
-    <div className="ae-stats">{[...(singles?[['Success rate',pct(o?.analytics.paper_hit_rate),'good'],['Avg. odds',n(o?.analytics.avg_odds,2),''],['Total runs',n(o?.analytics.runs),'']]:[['Completion rate',pct(o?.analytics.completion_rate),'good'],['Avg. legs',n(o?.analytics.avg_legs,1),''],['Avg. odds',n(o?.analytics.avg_odds,2),'']]),['Est. ROI (paper)',o?.analytics.paper_roi==null?'—':(o.analytics.paper_roi>0?'+':'')+o.analytics.paper_roi+'%',(o?.analytics.paper_roi??0)>0?'good':'']].map(([l,v,t])=><div key={l} className={t}><small>{l}</small><b>{v}</b></div>)}</div>
+    <div className="ae-stats">{[...(singles?[['Success rate',pct(o?.analytics.paper_hit_rate),'good'],['Avg. odds',n(o?.analytics.avg_odds,2),''],['Total runs',n(o?.analytics.runs),'']]:
+     jackpot?[['Success rate',pct(o?.analytics.paper_hit_rate),'good'],['Avg. legs',n(o?.analytics.avg_legs,1),''],['Avg. odds',big(o?.analytics.avg_odds),'']]:[['Completion rate',pct(o?.analytics.completion_rate),'good'],['Avg. legs',n(o?.analytics.avg_legs,1),''],['Avg. odds',n(o?.analytics.avg_odds,2),'']]),['Est. ROI (paper)',o?.analytics.paper_roi==null?'—':(o.analytics.paper_roi>0?'+':'')+o.analytics.paper_roi+'%',(o?.analytics.paper_roi??0)>0?'good':'']].map(([l,v,t])=><div key={l} className={t}><small>{l}</small><b>{v}</b></div>)}</div>
     <Chart points={o?.analytics.daily||[]}/><p className="dmr-caption">ROI only from runs whose every leg has a verified result ({n(o?.analytics.settled)} settled).</p></section>
    <section className="dmr-card"><div className="dmr-card-head"><h3><Activity/>System Status</h3></div>
     {(o?.system||[]).map(s=><div className="mi-row" key={s.name} title={s.detail}><span>{s.status==='HEALTHY'||s.status==='ACTIVE'?<CheckCircle2 className="good" size={18}/>:<Clock3 className="warn-ic" size={18}/>}{s.name}</span><span className={'mi-chip '+(s.status==='HEALTHY'?'good':s.status==='ACTIVE'?'info':'warn')}>{s.status.toLowerCase()}</span></div>)}</section>
   </div>
   :tab==='Programme Rules'?<div className="aq-two"><section className="dmr-card"><div className="dmr-card-head"><h3><SlidersHorizontal/>Programme rules</h3></div>
-    {[['Selections per ticket',p?`${p.min_legs}–${p.max_legs}`:'—'],['Maximum combined odds',p?n(p.max_odds,2):'—'],['Daily ticket cap',p?.daily_cap],['Odds freshness',p?`≤ ${p.freshness_minutes} minutes`:'—'],['Fixtures per ticket','Unique (one selection per fixture)'],['Joint probability','Bounds only; independence never assumed'],['Schedule',p?`Every ${p.schedule_minutes} minutes (idempotent)`:'—'],['Execution','Paper composition; no wagers or booking codes']].map(([k,v]:any)=><div className="mi-row" key={k}><span>{k}</span><b>{v??'—'}</b></div>)}</section>
+    {[['Selections per ticket',p?`${p.min_legs}–${p.max_legs}`:'—'],['Maximum combined odds',p?n(p.max_odds,jackpot?0:2):'—'],...(jackpot?[['Minimum combined odds',p?.min_combined_odds?n(p.min_combined_odds):'—'],['Candidate pool','20 best-EV fresh qualified opportunities (bounded search)']]:[]),['Daily ticket cap',p?.daily_cap],['Odds freshness',p?`≤ ${p.freshness_minutes} minutes`:'—'],['Fixtures per ticket','Unique (one selection per fixture)'],['Joint probability','Bounds only; independence never assumed'],['Schedule',p?`Every ${p.schedule_minutes} minutes (idempotent)`:'—'],['Execution','Paper composition; no wagers or booking codes']].map(([k,v]:any)=><div className="mi-row" key={k}><span>{k}</span><b>{v??'—'}</b></div>)}</section>
    <section className="dmr-card"><div className="dmr-card-head"><h3><ListChecks/>Eligibility now</h3></div><div className="mi-row hl"><span>Eligible fresh qualified opportunities</span><b>{n(o?.eligible_candidates)}</b></div>
     {o&&Object.keys(o.excluded).length?Object.entries(o.excluded).map(([k,v])=><div className="mi-row" key={k}><span>{REASON[k]||k}</span><b>{n(v)}</b></div>):<p className="dmr-caption">No qualified decisions were excluded.</p>}</section></div>
   :tab==='Run History'?<section className="dmr-card"><div className="dmr-card-head"><h3><History/>Run history ({n(history.data?.total)})</h3></div>

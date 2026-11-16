@@ -1,4 +1,4 @@
-"""Autonomous, paper-only programme engine shared by Accumulator and Automatic Singles.
+"""Autonomous, paper-only programme engine shared by Accumulator, Automatic Singles and Jackpot.
 
 Integrates the accumulator and singles patches without separate workers or databases:
 * each programme is a step of the existing autonomy cycle with idempotent time buckets;
@@ -7,6 +7,8 @@ Integrates the accumulator and singles patches without separate workers or datab
 * eligibility re-checks the named qualification gates explicitly, plus model approval, freshness and positive EV;
 * singles: several tickets per run up to the remaining daily cap, one per fixture per UTC day, no reused decision,
   fixed paper stake; runs are always recorded, including BLOCKED ones with reasons;
+* jackpot: one ticket per run (2-30 legs) whose combined odds reach optimizer's jackpot floor; a cheap reachability
+  screen blocks the run with JACKPOT_ODDS_UNREACHABLE before any combination search when the floor cannot be met;
 * paper settlement / ROI only from verified results of every leg.
 """
 from collections import defaultdict
@@ -15,21 +17,35 @@ from decimal import Decimal
 from sqlalchemy import select,func
 from app.db import models as m
 from app.modules.research.league import utc
-from app.modules.strategies.optimizer import Candidate,select_tickets,PROGRAMMES
+from math import prod
+from app.modules.strategies.optimizer import Candidate,select_tickets,PROGRAMMES,JACKPOT_MIN_COMBINED_ODDS
 
 FRESHNESS=timedelta(minutes=15)
 REQUIRED_GATES=('research','model','calibration','odds_freshness','market_mapping','value')
 OPTIONAL_GATES=('uncertainty','market_risk')  # enforced when recorded (autonomous qualification records them)
 APPROVALS=('approved','out_of_sample','calibrated','calibration_verified')
 SETTINGS={'accumulator':{'bucket_minutes':15,'tickets_per_run':1,'stake':None,'cap_unit':'runs'},
-          'singles':{'bucket_minutes':5,'tickets_per_run':None,'stake':100,'cap_unit':'tickets','one_per_fixture_per_day':True}}
+          'singles':{'bucket_minutes':5,'tickets_per_run':None,'stake':100,'cap_unit':'tickets','one_per_fixture_per_day':True},
+          'jackpot':{'bucket_minutes':15,'tickets_per_run':1,'stake':None,'cap_unit':'runs'}}
+# Mirrors optimizer.select_tickets' jackpot rule (combined*100 >= 200,000,000), the single source of the floor.
+MIN_COMBINED_ODDS={'jackpot':JACKPOT_MIN_COMBINED_ODDS}
+POOL=20  # optimizer.select_tickets searches the 20 best-EV candidates
 
 
 def policy(key):
  cfg=PROGRAMMES[key];s=SETTINGS[key]
  return {'programme':key,'min_legs':cfg['min_legs'],'max_legs':cfg['max_legs'],'max_odds':float(cfg['max_odds']),'daily_cap':cfg['daily_cap'],
          'freshness_minutes':int(FRESHNESS.total_seconds()//60),'unique_fixture_per_ticket':True,'mode':'PAPER','schedule_minutes':s['bucket_minutes'],
-         'paper_stake':s['stake'],'cap_unit':s['cap_unit'],'one_per_fixture_per_day':bool(s.get('one_per_fixture_per_day'))}
+         'paper_stake':s['stake'],'cap_unit':s['cap_unit'],'one_per_fixture_per_day':bool(s.get('one_per_fixture_per_day')),
+         'min_combined_odds':float(MIN_COMBINED_ODDS[key]) if key in MIN_COMBINED_ODDS else None}
+
+
+def reachable_odds(rows,key):
+ """Highest combined odds the optimizer could build: best price per fixture, top-EV pool, capped at max legs/odds."""
+ best={}
+ for r in rows[:POOL]:best[r['fixture_id']]=max(best.get(r['fixture_id'],1.0),r['odds'])
+ top=sorted(best.values(),reverse=True)[:PROGRAMMES[key]['max_legs']]
+ return min(prod(top),float(PROGRAMMES[key]['max_odds'])) if len(top)>=PROGRAMMES[key]['min_legs'] else None
 
 
 def gates_pass(gates):
@@ -86,6 +102,8 @@ def run_once(db,key,at=None,trigger='autonomous'):
  reasons=[]
  if remaining<=0:reasons.append('DAILY_CAP_REACHED')
  if len(rows)<cfg['min_legs']:reasons.append('INSUFFICIENT_FRESH_QUALIFIED_OPPORTUNITIES')
+ reach=reachable_odds(rows,key) if key in MIN_COMBINED_ODDS else None
+ if key in MIN_COMBINED_ODDS and not reasons and (reach or 0)<float(MIN_COMBINED_ODDS[key]):reasons.append('JACKPOT_ODDS_UNREACHABLE')
  proposals=[]
  if not reasons:
   candidates=[Candidate(r['qualification_id'],r['fixture_id'],Decimal(str(r['odds'])),Decimal(str(r['probability'])),r['market_key'],r['outcome_key'],utc(r['kickoff_at']).isoformat()) for r in rows]
@@ -112,7 +130,7 @@ def run_once(db,key,at=None,trigger='autonomous'):
          'combined_odds':first['combined_odds'] if first and key!='singles' else (round(sum(t['combined_odds'] for t in tickets)/len(tickets),3) if tickets else None),
          'probability_lower_bound':first['probability_lower_bound'] if first else None,'probability_upper_bound':first['probability_upper_bound'] if first else None,
          'correlation_status':first['correlation_status'] if first else None,'remaining_daily_capacity':remaining-len(tickets) if key=='singles' else None,
-         'reasons':reasons,'policy':cfg,'evaluated_at':at.isoformat(),
+         'reasons':reasons,'policy':cfg,'evaluated_at':at.isoformat(),'reachable_odds':round(reach,2) if reach else None,
          'risk_note':'Paper composition only; no wager or booking code. Multi-leg joint probability is recorded as bounds, never as an independent product.'}
  run=m.StrategyRun(programme_key=key,idempotency_key=ident,status='COMPLETED' if tickets else 'BLOCKED',created_at=at,result=result)
  db.add(run);db.flush()
@@ -222,6 +240,13 @@ def pipeline(db,key,at,rows,last):
  res=(last.result if last else None) or {};built=bool(last and last.status=='COMPLETED')
  s=lambda k,name,sub,ok,detail:{'key':k,'name':name,'sub':sub,'status':'DONE' if ok else 'WAITING','detail':detail}
  waiting=', '.join(res.get('reasons',[])) or 'No run yet'
+ if key=='jackpot':
+  floor=float(MIN_COMBINED_ODDS[key]);reach=reachable_odds(rows,key)
+  return [s('fetch','Fetch','Qualified',qualified>0,f'{qualified} qualified decisions'),
+          s('screen','Screen','High Odds',bool(reach and reach>=floor),f'Best reachable combined odds {reach:,.0f} vs floor {floor:,.0f}' if reach else f'Fewer than {PROGRAMMES[key]["min_legs"]} fresh eligible opportunities'),
+          s('validate','Validate','Gates',bool(rows),'Named qualification gates re-checked'),
+          s('optimise','Optimise','Combinations',built,'Bounded search, one fixture per leg, odds within policy'),
+          s('build','Build Ticket','Jackpot',built,f"{res.get('selections',0)} legs" if built else waiting),s('publish','Publish','Paper',bool(last),'Every run recorded, including blocked runs')]
  if key=='singles':
   return [s('fetch','Fetch','Qualified',qualified>0,f'{qualified} qualified decisions'),s('validate','Validate','Evidence',bool(rows),'Named qualification gates re-checked'),
           s('select','Select','Single',len(rows)>=1,f'{len(rows)} fresh eligible opportunities'),s('risk','Check Risk','Exposure',built,'Daily cap and one per fixture per day'),
