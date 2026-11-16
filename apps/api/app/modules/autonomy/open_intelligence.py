@@ -425,6 +425,7 @@ def collect(factory,at=None):
                         ('singles',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'singles',at=at)),
                         ('jackpot',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'jackpot',at=at)),
                         ('draws',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'draws',at=at)),
+                        ('rollover',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'rollover',at=at)),
                         ('market-benchmark',timedelta(minutes=30),lambda:__import__('app.modules.markets.intelligence',fromlist=['refresh_benchmark']).refresh_benchmark(factory,at=at))):
   if not due(factory,'open-intel:schedule:'+name,every,at):continue
   try:

@@ -1,4 +1,4 @@
-"""Autonomous, paper-only programme engine shared by Accumulator, Automatic Singles, Jackpot and Weekly Draw Centre.
+"""Autonomous, paper-only programme engine shared by Accumulator, Singles, Jackpot, Weekly Draw and Daily Rollover.
 
 Integrates the accumulator and singles patches without separate workers or databases:
 * each programme is a step of the existing autonomy cycle with idempotent time buckets;
@@ -11,6 +11,10 @@ Integrates the accumulator and singles patches without separate workers or datab
   screen blocks the run with JACKPOT_ODDS_UNREACHABLE before any combination search when the floor cannot be met;
 * draws: weekly run (Saturday 09:00 Africa/Lagos, caught up on the first cycle of the period), full-time 1X2 draw legs
   with an edge of at least 1.5 pp, one ticket per leg target (2, 5, 8, 10) without reusing a selection across tickets;
+* rollover: daily run (09:00 Africa/Lagos, caught up), one single per day inside a 30-day paper plan whose state is derived
+  from run history (no extra table). A step advances only on a VERIFIED win (bankroll x odds); a loss stops the plan and a
+  fresh one starts; a void (or no verified result 7 days after kickoff) keeps day and bankroll; an unsettled step blocks
+  the next one (AWAITING_SETTLEMENT), so a plan never compounds on predicted wins;
 * paper settlement / ROI only from verified results of every leg.
 """
 from collections import defaultdict
@@ -29,7 +33,9 @@ APPROVALS=('approved','out_of_sample','calibrated','calibration_verified')
 SETTINGS={'accumulator':{'bucket_minutes':15,'tickets_per_run':1,'stake':None,'cap_unit':'runs'},
           'singles':{'bucket_minutes':5,'tickets_per_run':None,'stake':100,'cap_unit':'tickets','one_per_fixture_per_day':True},
           'jackpot':{'bucket_minutes':15,'tickets_per_run':1,'stake':None,'cap_unit':'runs'},
-          'draws':{'bucket_minutes':7*24*60,'weekly':True,'tickets_per_run':None,'stake':None,'cap_unit':'tickets','leg_targets':(2,5,8,10),'min_edge':0.015}}
+          'draws':{'bucket_minutes':7*24*60,'weekly':True,'tickets_per_run':None,'stake':None,'cap_unit':'tickets','leg_targets':(2,5,8,10),'min_edge':0.015},
+          'rollover':{'bucket_minutes':24*60,'daily':True,'tickets_per_run':1,'stake':None,'cap_unit':'runs','min_edge':0.015,
+                      'target_odds':1.5,'band':0.25,'plan_days':30,'bankroll':1000,'max_days_ahead':2}}
 WEEKLY_ANCHOR=(5,8)  # Saturday 08:00 UTC = 09:00 Africa/Lagos (no DST)
 # Mirrors optimizer.select_tickets' jackpot rule (combined*100 >= 200,000,000), the single source of the floor.
 MIN_COMBINED_ODDS={'jackpot':JACKPOT_MIN_COMBINED_ODDS}
@@ -43,12 +49,22 @@ def policy(key):
          'paper_stake':s['stake'],'cap_unit':s['cap_unit'],'one_per_fixture_per_day':bool(s.get('one_per_fixture_per_day')),
          'min_combined_odds':float(MIN_COMBINED_ODDS[key]) if key in MIN_COMBINED_ODDS else None,
          'leg_targets':list(s['leg_targets']) if s.get('leg_targets') else None,'min_edge':s.get('min_edge'),
-         'schedule':'Weekly, Saturday 09:00 WAT' if s.get('weekly') else f"Every {s['bucket_minutes']} minutes"}
+         'schedule':'Weekly, Saturday 09:00 WAT' if s.get('weekly') else 'Daily, 09:00 WAT' if s.get('daily') else f"Every {s['bucket_minutes']} minutes",
+         **({'target_odds':s['target_odds'],'target_band':[s['target_odds'],s['target_odds']+s['band']],'plan_days':s['plan_days'],'starting_bankroll':s['bankroll'],
+             'max_days_ahead':s['max_days_ahead']} if key=='rollover' else {})}
 
 
 def programme_rows(key,rows,excluded):
  """Programme-specific eligibility on top of the shared named-gate eligibility (draws: full-time draw, minimum edge)."""
  s=SETTINGS[key];excluded=dict(excluded)
+ if key=='rollover':
+  kept=[];lo,hi=s['target_odds'],s['target_odds']+s['band']
+  for r in rows:
+   reason='OUTSIDE_TARGET_BAND' if not lo<=r['odds']<=hi else 'INSUFFICIENT_EDGE' if r['probability']-1/r['odds']<s['min_edge'] else None
+   if reason is None and r.get('_at') and utc(r['kickoff_at'])>r['_at']+timedelta(days=s['max_days_ahead']):reason='TOO_FAR_AHEAD'
+   if reason:excluded[reason]=excluded.get(reason,0)+1
+   else:kept.append(r)
+  return kept,excluded
  if key!='draws':return rows,excluded
  kept=[]
  for r in rows:
@@ -88,13 +104,48 @@ def eligible(db,at):
   if (f.id,p.market_key,p.outcome_key) in seen:continue
   seen.add((f.id,p.market_key,p.outcome_key))
   out.append({'qualification_id':q.id,'fixture_id':f.id,'fixture':f'{f.home_name} vs {f.away_name}','kickoff_at':f.kickoff_at,'market_key':p.market_key,'outcome_key':p.outcome_key,
-              'odds':odds,'probability':prob,'ev':round((prob*odds-1)*100,2),'bookmaker':o.bookmaker,'odds_observed_at':o.observed_at})
+              'odds':odds,'probability':prob,'ev':round((prob*odds-1)*100,2),'bookmaker':o.bookmaker,'odds_observed_at':o.observed_at,'_at':at})
  out.sort(key=lambda r:-r['ev'])
  return out,dict(excluded)
 
 
+def strip(rows):return [{k:v for k,v in r.items() if k!='_at'} for r in rows]
+
+
+def step_state(db,ticket,at):
+ """WON/LOST from a verified result, VOID when voided or still unverified 7 days after kickoff, else None (pending)."""
+ st=settle_ticket(db,ticket)
+ if st:return st
+ leg=(ticket.get('legs') or [None])[0]
+ if not leg:return None
+ res=db.scalar(select(m.Result).where(m.Result.fixture_id==leg['fixture_id']).order_by(m.Result.version.desc()).limit(1))
+ if res is not None and ((res.outcome or {}).get('outcomes') or {}).get(leg['market_key'],{}).get(leg['outcome_key'])=='VOID':return 'VOID'
+ kickoff=leg.get('kickoff_at')
+ if kickoff and at-utc(datetime.fromisoformat(kickoff) if isinstance(kickoff,str) else kickoff)>timedelta(days=7):return 'VOID'
+ return None
+
+
+def rollover_state(db,at):
+ """Current paper plan derived from the latest completed rollover step (no plan table, no human input)."""
+ s=SETTINGS['rollover']
+ fresh={'plan_id':f"plan-{at.astimezone(timezone.utc):%Y%m%d}",'day':1,'bankroll':float(s['bankroll']),'started_at':at.isoformat(),'plan_days':s['plan_days'],
+        'target_odds':s['target_odds'],'status':'ACTIVE','previous':None,'ended':None}
+ last=db.scalar(select(m.StrategyRun).where(m.StrategyRun.programme_key=='rollover',m.StrategyRun.status=='COMPLETED').order_by(m.StrategyRun.created_at.desc()).limit(1))
+ if last is None or not (last.result or {}).get('plan') or not run_tickets(last):return fresh
+ plan={**last.result['plan'],'ended':None};t=run_tickets(last)[0];st=step_state(db,t,at)
+ if st is None:return {**plan,'status':'AWAITING_SETTLEMENT','previous':None}
+ if st=='VOID':return {**plan,'status':'ACTIVE','previous':'VOID'}
+ if st=='LOST':return {**fresh,'previous':'LOST','ended':{'plan_id':plan['plan_id'],'status':'STOPPED','day':plan['day']}}
+ if plan['day']>=plan['plan_days']:return {**fresh,'previous':'WON','ended':{'plan_id':plan['plan_id'],'status':'COMPLETED','day':plan['day'],
+                                         'bankroll':round(plan['bankroll']*t['combined_odds'],2)}}
+ return {**plan,'day':plan['day']+1,'bankroll':round(plan['bankroll']*t['combined_odds'],2),'status':'ACTIVE','previous':'WON'}
+
+
 def period_start(key,at):
  s=SETTINGS[key]
+ if s.get('daily'):
+  at=at.astimezone(timezone.utc);start=at.replace(hour=WEEKLY_ANCHOR[1],minute=0,second=0,microsecond=0)
+  return start-timedelta(days=1) if start>at else start
  if s.get('weekly'):
   at=at.astimezone(timezone.utc);day,hour=WEEKLY_ANCHOR
   start=(at-timedelta(days=(at.weekday()-day)%7)).replace(hour=hour,minute=0,second=0,microsecond=0)
@@ -115,8 +166,9 @@ def run_once(db,key,at=None,trigger='autonomous'):
  at=at or datetime.now(timezone.utc);ident=f'auto:{bucket(key,at)}';s=SETTINGS[key]
  prior=db.scalar(select(m.StrategyRun).where(m.StrategyRun.programme_key==key,m.StrategyRun.idempotency_key==ident))
  if prior:return prior
- rows,excluded=programme_rows(key,*eligible(db,at));cfg=policy(key)
+ rows,excluded=programme_rows(key,*eligible(db,at));rows=strip(rows);cfg=policy(key)
  today=_today_runs(db,key,at)
+ plan=rollover_state(db,at) if key=='rollover' else None
  used_today=sum(len((r.result or {}).get('tickets') or []) or (1 if (r.result or {}).get('legs') else 0) for r in today) if s['cap_unit']=='tickets' else len(today)
  remaining=max(0,cfg['daily_cap']-used_today)
  if s.get('one_per_fixture_per_day'):
@@ -126,6 +178,7 @@ def run_once(db,key,at=None,trigger='autonomous'):
   if before-len(rows):excluded['ALREADY_SELECTED_TODAY']=before-len(rows)
  reasons=[]
  if remaining<=0:reasons.append('DAILY_CAP_REACHED')
+ if plan and plan['status']=='AWAITING_SETTLEMENT':reasons.append('AWAITING_SETTLEMENT')
  if len(rows)<cfg['min_legs']:reasons.append('INSUFFICIENT_FRESH_QUALIFIED_OPPORTUNITIES')
  reach=reachable_odds(rows,key) if key in MIN_COMBINED_ODDS else None
  if key in MIN_COMBINED_ODDS and not reasons and (reach or 0)<float(MIN_COMBINED_ODDS[key]):reasons.append('JACKPOT_ODDS_UNREACHABLE')
@@ -149,11 +202,11 @@ def run_once(db,key,at=None,trigger='autonomous'):
     fixtures|=fixture_ids;kept.append(prop)
    proposals=kept
   if not proposals:reasons.append('NO_VALID_DIVERSIFIED_COMBINATION' if key!='singles' else 'NO_VALID_SELECTION')
- by_id={r['qualification_id']:r for r in rows}
+ by_id={r['qualification_id']:r for r in rows};stake=plan['bankroll'] if plan else s['stake']
  iso=lambda leg:{k:(utc(v).isoformat() if isinstance(v,datetime) else v) for k,v in leg.items()}
  tickets=[{'legs':[iso(by_id[i]) for i in prop['qualification_ids']],'combined_odds':float(prop['combined_odds']),'probability_lower_bound':float(prop['probability_lower_bound']),
            'probability_upper_bound':float(prop['probability_upper_bound']),'correlation_status':prop['correlation_status'],
-           'paper_stake':s['stake'],'potential_return':round(s['stake']*float(prop['combined_odds']),2) if s['stake'] else None} for prop in proposals]
+           'paper_stake':stake,'potential_return':round(stake*float(prop['combined_odds']),2) if stake else None} for prop in proposals]
  first=tickets[0] if tickets else None
  result={'mode':'PAPER','trigger':trigger,'programme':key,'candidate_count':len(rows),'excluded':dict(excluded),'tickets':tickets,
          'legs':first['legs'] if first and key!='singles' else [leg for t in tickets for leg in t['legs']],
@@ -161,7 +214,7 @@ def run_once(db,key,at=None,trigger='autonomous'):
          'combined_odds':first['combined_odds'] if first and key!='singles' else (round(sum(t['combined_odds'] for t in tickets)/len(tickets),3) if tickets else None),
          'probability_lower_bound':first['probability_lower_bound'] if first else None,'probability_upper_bound':first['probability_upper_bound'] if first else None,
          'correlation_status':first['correlation_status'] if first else None,'remaining_daily_capacity':remaining-len(tickets) if key=='singles' else None,
-         'reasons':reasons,'policy':cfg,'evaluated_at':at.isoformat(),'reachable_odds':round(reach,2) if reach else None,
+         'reasons':reasons,'policy':cfg,'evaluated_at':at.isoformat(),'plan':plan,'reachable_odds':round(reach,2) if reach else None,
          'risk_note':'Paper composition only; no wager or booking code. Multi-leg joint probability is recorded as bounds, never as an independent product.'}
  run=m.StrategyRun(programme_key=key,idempotency_key=ident,status='COMPLETED' if tickets else 'BLOCKED',created_at=at,result=result)
  db.add(run);db.flush()
@@ -207,7 +260,7 @@ def run_dict(db,r):
  return {'id':r.id,'number':None,'created_at':r.created_at,'status':r.status,'selections':res.get('selections',len(res.get('legs') or res.get('proposals') or [])),
          'combined_odds':res.get('combined_odds'),'reasons':res.get('reasons',[]),'trigger':res.get('trigger','admin'),'candidate_count':res.get('candidate_count'),
          'probability_lower_bound':res.get('probability_lower_bound'),'probability_upper_bound':res.get('probability_upper_bound'),'legs':res.get('legs',[]),
-         'tickets':res.get('tickets',[]),'settlement':settle(db,r)}
+         'tickets':res.get('tickets',[]),'settlement':settle(db,r),'plan':res.get('plan')}
 
 
 def runs(db,key,limit=50,offset=0):
@@ -261,7 +314,7 @@ def overview(db,key,at=None):
  now_w,prev_w=_window(db,key,at-timedelta(days=1),at+timedelta(seconds=1)),_window(db,key,at-timedelta(days=2),at-timedelta(days=1))
  change=lambda a,b:round((a-b)*100/b,1) if b else None
  diff=lambda a,b,d=1:round(a-b,d) if a is not None and b is not None else None
- rows,excluded=programme_rows(key,*eligible(db,at));cfg=policy(key);s=SETTINGS[key]
+ rows,excluded=programme_rows(key,*eligible(db,at));rows=strip(rows);cfg=policy(key);s=SETTINGS[key]
  last=max(all_runs,key=lambda r:utc(r.created_at),default=None)
  settled=_settled_tickets(db,done)
  from app.modules.autonomy.service import runtime_status
@@ -272,7 +325,7 @@ def overview(db,key,at=None):
          'avg_selections':round(sum((r.result or {}).get('selections',0) for r in done)/len(done),1) if done else None,
          'avg_combined_odds':round(sum(t.get('combined_odds') or 0 for t in tickets)/len(tickets),2) if tickets else None,
          'success_rate':round(sum(st=='WON' for _,st in settled)*100/len(settled),1) if settled else None,'settled_tickets':len(settled),
-         'leg_hit_rate':_leg_rate(_leg_states(db,done)),
+         'leg_hit_rate':_leg_rate(_leg_states(db,done)),'plan':rollover_state(db,at) if key=='rollover' else None,
          'trend':{'runs':change(now_w['runs'],prev_w['runs']),'completed':change(now_w['completed'],prev_w['completed']),'blocked':change(now_w['blocked'],prev_w['blocked']),
                   'avg_selections':diff(now_w['avg_selections'],prev_w['avg_selections']),'avg_odds':diff(now_w['avg_odds'],prev_w['avg_odds'],2) if key=='singles' else (change(now_w['avg_odds'] or 0,prev_w['avg_odds']) if now_w['avg_odds'] is not None and prev_w['avg_odds'] else None),
                   'success_rate_pp':diff(now_w['hit_rate'],prev_w['hit_rate']),'leg_hit_rate_pp':diff(now_w['leg_hit_rate'],prev_w['leg_hit_rate'])},
@@ -287,6 +340,13 @@ def pipeline(db,key,at,rows,last):
  res=(last.result if last else None) or {};built=bool(last and last.status=='COMPLETED')
  s=lambda k,name,sub,ok,detail:{'key':k,'name':name,'sub':sub,'status':'DONE' if ok else 'WAITING','detail':detail}
  waiting=', '.join(res.get('reasons',[])) or 'No run yet'
+ if key=='rollover':
+  plan=rollover_state(db,at)
+  return [s('fetch','Fetch','Qualified',qualified>0,f'{qualified} qualified decisions'),
+          s('screen','Screen','Sequential',plan['status']!='AWAITING_SETTLEMENT',f"Plan {plan['plan_id']} day {plan['day']}/{plan['plan_days']}: "+('previous step awaiting verified result' if plan['status']=='AWAITING_SETTLEMENT' else 'ready for next step')),
+          s('validate','Validate','Gates',bool(rows),f'{len(rows)} selections in the target odds band with edge ≥ 1.5 pp'),
+          s('plan','Plan','Rollover',built,f"Paper bankroll {plan['bankroll']:,.2f}"),
+          s('build','Build Ticket','Paper',built,'1 paper single' if built else waiting),s('publish','Publish','Record',bool(last),'Every run recorded, including blocked runs')]
  if key=='draws':
   return [s('fetch','Fetch','Qualified',qualified>0,f'{qualified} qualified decisions'),
           s('filter','Filter','Draw Markets',bool(rows),f'{len(rows)} full-time draw selections with edge ≥ 1.5 pp'),
@@ -341,9 +401,9 @@ def system(db,key,at,last,rt):
  q=db.get(m.ProviderSyncState,'qualification:autonomous')
  q_at=(q.payload or {}).get('at') if q else None
  fresh=lambda iso,mins:bool(iso) and at-utc(datetime.fromisoformat(iso) if isinstance(iso,str) else iso)<=timedelta(minutes=mins)
- last_at=last.created_at if last else None;size=SETTINGS[key]['bucket_minutes'];weekly=SETTINGS[key].get('weekly')
+ last_at=last.created_at if last else None;size=SETTINGS[key]['bucket_minutes'];weekly=SETTINGS[key].get('weekly') or SETTINGS[key].get('daily')
  st=lambda name,ok,detail:{'name':name,'status':'HEALTHY' if ok else 'WAITING','detail':detail}
  return [st('Qualified opportunities feed',fresh(q_at,10),f'Last qualification cycle {q_at or "never"}'),
          st('Validation engine',True,'Named gates re-checked per opportunity'),st('Risk & exposure controls',True,f"Daily cap {PROGRAMMES[key]['daily_cap']}, max odds {PROGRAMMES[key]['max_odds']}"),
          st('Programme builder',bool(last_at) and utc(last_at)>=period_start(key,at) if weekly else fresh(last_at,size*2+5),f'Last run {utc(last_at).isoformat() if last_at else "never"}'),
-         {'name':'Scheduler (auto run)','status':'ACTIVE' if rt.get('worker_online') else 'OFFLINE','detail':'Autonomy cycle, weekly run Saturday 09:00 WAT (caught up on restart)' if weekly else f'Autonomy cycle, {size}-minute buckets'}]
+         {'name':'Scheduler (auto run)','status':'ACTIVE' if rt.get('worker_online') else 'OFFLINE','detail':f"Autonomy cycle, {policy(key)['schedule'].lower()} (caught up on restart)" if weekly else f'Autonomy cycle, {size}-minute buckets'}]

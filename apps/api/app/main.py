@@ -525,6 +525,9 @@ app.include_router(jackpot_router)
 # Weekly Draw Centre (shared programme engine, weekly run inside the autonomy cycle)
 from app.modules.strategies.draws_routes import router as draws_router
 app.include_router(draws_router)
+# Daily Rollover Centre (shared programme engine, daily run inside the autonomy cycle)
+from app.modules.strategies.rollover_routes import router as rollover_router
+app.include_router(rollover_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

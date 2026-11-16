@@ -1,7 +1,7 @@
 from datetime import datetime,timezone
 from fastapi import APIRouter,Query
 from app.db.base import SessionLocal
-from app.modules.strategies import accumulator as acc
+from app.modules.strategies import accumulator as acc, programme_engine as pe
 
 router=APIRouter(prefix='/api/v1/sports/programmes/accumulator',tags=['Accumulator Engine'])
 
@@ -19,7 +19,7 @@ def get_configuration():return {'policy':acc.policy(),'mode':'PAPER','autonomous
 @router.get('/candidates')
 def get_candidates():
  with SessionLocal() as db:
-  rows,excluded=acc.eligible(db,datetime.now(timezone.utc))
+  rows,excluded=acc.eligible(db,datetime.now(timezone.utc));rows=pe.strip(rows)
   return {'items':rows,'excluded':excluded,'policy':acc.policy()}
 
 

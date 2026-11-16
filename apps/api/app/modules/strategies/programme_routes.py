@@ -21,7 +21,7 @@ def make_router(key,session,tag):
  @router.get('/candidates')
  def get_candidates():
   with session() as db:
-   rows,excluded=pe.programme_rows(key,*pe.eligible(db,datetime.now(timezone.utc)))
+   rows,excluded=pe.programme_rows(key,*pe.eligible(db,datetime.now(timezone.utc)));rows=pe.strip(rows)
    return {'items':rows,'excluded':excluded,'policy':pe.policy(key),
            'reachable_odds':pe.reachable_odds(rows,key) if key in pe.MIN_COMBINED_ODDS else None}
 
@@ -57,5 +57,10 @@ def make_router(key,session,tag):
    db.execute(select(func.count()).select_from(m.StrategyRun))
    from app.modules.autonomy.service import runtime_status
    return {'database':'CONNECTED','mode':'PAPER','scheduler':'ACTIVE' if runtime_status(db).get('worker_online') else 'OFFLINE'}
+
+ if key=='rollover':
+  @router.get('/plan')
+  def get_plan():
+   with session() as db:return pe.rollover_state(db,datetime.now(timezone.utc))
 
  return router
