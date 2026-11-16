@@ -528,6 +528,9 @@ app.include_router(draws_router)
 # Daily Rollover Centre (shared programme engine, daily run inside the autonomy cycle)
 from app.modules.strategies.rollover_routes import router as rollover_router
 app.include_router(rollover_router)
+# Ticket Builder (registers programme-engine paper tickets in the canonical ticket register)
+from app.modules.tickets.builder_routes import router as ticket_builder_router
+app.include_router(ticket_builder_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

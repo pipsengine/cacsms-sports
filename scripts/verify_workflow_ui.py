@@ -43,7 +43,7 @@ def main():
   for index,href in enumerate(links):
    assert urlparse(href).path=='/sports/'+TARGETS[index]
    page.goto(urljoin(BASE,href),wait_until='domcontentloaded')
-   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith(('/research','/match-analysis','/predictions','/markets','/qualification','/opportunities','/programmes/accumulator','/programmes/singles','/programmes/jackpot','/programmes/draws','/programmes/rollover')) else '.page-heading h1').wait_for();settled()
+   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith(('/research','/match-analysis','/predictions','/markets','/qualification','/opportunities','/programmes/accumulator','/programmes/singles','/programmes/jackpot','/programmes/draws','/programmes/rollover','/tickets')) else '.page-heading h1').wait_for();settled()
    query=parse_qs(urlparse(href).query)
    if query.get('run_id'):
     page.locator('.workflow-context .workflow-context-metrics').wait_for()
@@ -67,7 +67,7 @@ def main():
   assert len(slugs)==29
   for slug in slugs:
    page.goto(BASE+'/sports/'+slug,wait_until='domcontentloaded')
-   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith(('/research','/match-analysis','/predictions','/markets','/qualification','/opportunities','/programmes/accumulator','/programmes/singles','/programmes/jackpot','/programmes/draws','/programmes/rollover')) else '.page-heading h1').wait_for();settled()
+   page.locator('.af-top h2' if page.url.split('?')[0].endswith('/fixtures') else '.lsi-topline h2' if page.url.split('?')[0].endswith('/statistics') else '.dmr-header h2' if page.url.split('?')[0].endswith(('/research','/match-analysis','/predictions','/markets','/qualification','/opportunities','/programmes/accumulator','/programmes/singles','/programmes/jackpot','/programmes/draws','/programmes/rollover','/tickets')) else '.page-heading h1').wait_for();settled()
   page.goto(BASE+'/sports/dashboard',wait_until='domcontentloaded')
   page.get_by_role('button',name='Collapse sidebar',exact=True).click();page.wait_for_timeout(300)
   assert page.locator('.main').evaluate('(e)=>e.getBoundingClientRect().left')==0
