@@ -60,6 +60,10 @@ def latest_feature(db,fixture_id,cutoff):
         evidence=authorized_evidence(db,fixture_id,ids,cutoff)
         if research.status=='VERIFIED' and evidence:
             metrics={k:v for k,v in feature_metrics(raw).items() if set(v['evidence_ids'])<=set(evidence)}
+            numeric=raw.get('numeric_features') if isinstance(raw.get('numeric_features'),dict) else {}
+            if 'form_rating' not in metrics and number(numeric.get('home_form')) is not None and number(numeric.get('away_form')) is not None:
+                # Pipeline snapshots carry the model's six numeric features; form is points per match over the last five.
+                metrics['form_rating']=dict(home=number(numeric['home_form']),away=number(numeric['away_form']),unit='pts/match',evidence_ids=[])
             return feature,research,evidence,metrics,len(versions)
     return None,None,{},{},len(versions)
 
@@ -97,7 +101,7 @@ def workspace(db,fixture_id,as_of=None):
              dict(key='head_to_head',name='Head-to-Head Analysis',status=state('head_to_head',bool(ws['summary']['head_to_head']))),
              dict(key='availability',name='Injuries & Lineup Status',status='VERIFIED' if sections.get('injuries')==sections.get('lineups')=='VERIFIED' else 'MISSING'),
              dict(key='tactics',name='Tactical Matchup',status='VERIFIED' if TACTICAL&set(metrics) else 'MISSING'),
-             dict(key='features',name='Feature Engineering',status='VERIFIED' if feature and metrics else 'MISSING')]
+             dict(key='features',name='Feature Engineering',status='VERIFIED' if feature else 'MISSING')]
     verified=sum(r['status']=='VERIFIED' for r in rows)
     authorized=[e for e in ws['evidence'] if e['status']=='RECORDED_AUTHORIZED']
     tactical_ids={i for k in TACTICAL&set(metrics) for i in metrics[k]['evidence_ids']}

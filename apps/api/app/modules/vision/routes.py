@@ -47,7 +47,9 @@ async def capture_admin(item:CaptureRequest,x_admin_token:str|None=Header(defaul
 def browser_readiness():
  from pathlib import Path
  configured=all(os.getenv(k) for k in ('SPORTS_VISION_ENDPOINT','SPORTS_VISION_API_KEY','SPORTS_VISION_MODEL','SPORTS_VISION_ALLOWED_HOSTS'))
- return {'mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_TESTED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
+ from app.modules.acquisition.source_policy import PROHIBITED,prohibition
+ restricted='; '.join(f"{e['name']} ({d}): {e['reason']}" for d,e in PROHIBITED.items() if prohibition(d)) or 'None'
+ return {'restricted_sources':restricted,'autonomous_acquisition':'OpenLigaDB API + Football-Data.co.uk CSV (structured, permitted; no browser needed)','mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_TESTED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
 
 @router.post('/admin/browser/{capture_id}/infer')
 async def infer_admin(capture_id:str,x_admin_token:str|None=Header(default=None)):

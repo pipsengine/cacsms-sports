@@ -26,6 +26,8 @@ def validate_feed_url(url,resolve=True):
     if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.port not in (None,443):
         raise ValueError('Only public HTTPS feeds on port 443 are allowed')
     if parsed.fragment:raise ValueError('Fragments are not allowed')
+    from app.modules.acquisition.source_policy import prohibition
+    if prohibition(parsed.hostname):raise ValueError('Source prohibited by its terms of service: '+prohibition(parsed.hostname)['reason'])
     host=parsed.hostname.lower()
     if host in ('localhost','localhost.localdomain') or host.endswith(('.local','.internal')):
         raise ValueError('Private host forbidden')

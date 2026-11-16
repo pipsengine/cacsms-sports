@@ -92,6 +92,10 @@ def code_detail(id:str):
 def model_evaluations(id:str):return []
 @app.get(PREFIX+'/sources/health')
 def source_health():return rows_for('sources')
+@app.get(PREFIX+'/sources/registry')
+def source_registry():
+ from app.modules.acquisition.source_policy import registry
+ with SessionLocal() as s:return registry(s)
 @app.get(PREFIX+'/missions/{id}')
 def mission_detail(id:str):
  with SessionLocal() as s:

@@ -67,6 +67,16 @@ def test_feature_metrics_require_authorized_evidence(store):
     assert report['metadata']['analysis_id']=='feature'
 
 
+def test_pipeline_numeric_features_count_as_feature_engineering(store):
+    factory,at=store
+    with factory.begin() as db:
+        db.add(m.Feature(id='feature',research_id='dossier',cutoff_at=at+timedelta(minutes=2),features={'evidence_ids':['obs0'],'numeric_features':{'home_form':2.2,'away_form':0.8}}))
+    with factory() as db:
+        report=service.workspace(db,'fixture')
+    assert {r['key']:r['status'] for r in report['summary']}['features']=='VERIFIED'
+    assert report['feature_comparison']==[dict(key='form_rating',label='Form Rating',home=2.2,away=0.8,unit='pts/match')]
+
+
 def test_feature_ignored_when_dossier_not_verified(store):
     factory,at=store
     add_feature(factory,at,{'attack_strength':{'home':1,'away':2}})

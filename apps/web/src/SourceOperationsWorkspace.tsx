@@ -2,7 +2,7 @@ import {useBackendRefresh} from './LiveUpdates';
 import React,{useEffect,useMemo,useState} from 'react';
 import {AlertTriangle,Database,RefreshCcw,Search,ShieldCheck,X} from 'lucide-react';
 type Row=Record<string,unknown>;
-const endpoints={sources:[['Sources','sources'],['Source health','sources/health'],['Acquisition jobs','acquisition/jobs']], 'live-operations':[['Live operations','operations/live'],['Pipeline events','pipeline/events'],['Acquisition jobs','acquisition/jobs'],['Incidents','incidents'],['Audit events','audit/events']]} as const;
+const endpoints={sources:[['Source registry & sync','sources/registry'],['Sources','sources'],['Source health','sources/health'],['Acquisition jobs','acquisition/jobs']], 'live-operations':[['Live operations','operations/live'],['Pipeline events','pipeline/events'],['Acquisition jobs','acquisition/jobs'],['Incidents','incidents'],['Audit events','audit/events']]} as const;
 function safe(k:string,v:unknown):string {if(/password|secret|token|credential|api.?key|authorization|cookie|session/i.test(k))return '[REDACTED]';if(v==null)return '—';if(typeof v==='object')return '[Structured evidence — inspect at authorized backend]';return String(v)}
 export function SourceOperationsWorkspace({page}:{page:'sources'|'live-operations'}){
  const choices=endpoints[page];const [dataset,setDataset]=useState<string>(choices[0][1]);const [rows,setRows]=useState<Row[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);const [query,setQuery]=useState('');const [selected,setSelected]=useState<Row|null>(null);
