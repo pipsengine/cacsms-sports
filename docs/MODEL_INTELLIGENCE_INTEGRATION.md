@@ -6,6 +6,8 @@ The model dashboard at `/sports/models` adapts the supplied integration module a
 
 Registry state, recorded approval flags, monitoring decisions, chronological holdout scores and prospective scores are displayed separately. An ACTIVE model counts as active and approved only when all existing inference approval flags are true. A BLOCKED monitoring snapshot does not rewrite registry state. This dashboard performs no promotion, evaluation, training or deployment mutations.
 
+Approved ACTIVE models with no decided live outcomes report AWAITING_OUTCOMES; those with some outcomes but incomplete monitoring windows report WARMING_UP. These states are not monitoring clearance. The gate still requires 50 recent and 50 separate reference outcomes, preserves the missing-sample reasons, and reports counts, pending forecasts and the earliest pending fixture. Training and holdout samples are never substituted for prospective outcomes. Drift or validation failures continue to report BLOCKED.
+
 Holdout reliability charts use stored reliability bins. Prospective Brier/log-loss trends use current-version settled forecasts in the selected pre-match forecast cohort. Unsupported or unrecorded metrics remain unavailable. Market models expose their per-outcome validation results instead of inventing a single aggregate holdout score.
 
 Training artifacts are counted as recorded artifacts, not running experiments. Training controller next-check times are eligibility checks, not promised retraining schedules. No standalone experiment queue, PSI measurement, feature SLA or coverage percentage is inferred. Existing lifecycle workers and server-side validation gates remain authoritative. PAPER mode is retained.

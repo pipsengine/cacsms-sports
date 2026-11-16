@@ -53,6 +53,8 @@ def workspace(db, days=30, at=None):
                'type': artifact.get('model_type', 'logistic'), 'registry_status': model.status,
                'approved_active': approved_active, 'approvals': approvals,
                'monitoring': latest['status'] if latest else 'NOT_EVALUATED', 'reasons': latest['reasons'] if latest else [],
+               'monitoring_ready': bool(latest and latest['status']=='MONITORED'),
+               'monitoring_progress': (latest['recent'].get('monitoring_progress') or {}) if latest else {},
                'evaluated_at': latest['at'] if latest else None, 'training_count': artifact.get('training_count'),
                'holdout_count': artifact.get('holdout_count'), 'holdout': artifact.get('holdout_metrics') or {},
                'baseline': artifact.get('baseline_metrics') or {}, 'reliability': bins,

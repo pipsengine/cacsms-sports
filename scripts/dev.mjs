@@ -1,9 +1,11 @@
 // Starts the FastAPI API (port 8000), the background task scheduler and the Vite web app (port 5173) together.
-// Usage from the repository root: npm run dev   (Ctrl+C stops both)
+// Usage from the repository root: npm run dev   (Ctrl+C stops all services)
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { checkDevPorts } from './dev-ports.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = path.join(root, 'apps', 'api');
@@ -46,11 +48,16 @@ function start(name, color, cmd, args, opts) {
   };
   pipe(child.stdout, process.stdout);
   pipe(child.stderr, process.stderr);
+  child.on('error', (error) => {
+    console.error(`${tag}could not start: ${error.message}`);
+    shutdown(1);
+  });
   child.on('exit', (code) => {
     console.log(`${tag}exited with code ${code}`);
     shutdown(code ?? 0);
   });
   children.push(child);
+  return child;
 }
 
 let stopping = false;
@@ -58,8 +65,8 @@ function shutdown(code) {
   if (stopping) return;
   stopping = true;
   for (const c of children) {
-    if (c.exitCode !== null) continue;
-    if (isWin) spawn('taskkill', ['/pid', String(c.pid), '/T', '/F']);
+    if (!c.pid || c.exitCode !== null || c.signalCode !== null) continue;
+    if (isWin) spawn('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     else c.kill('SIGTERM');
   }
   setTimeout(() => process.exit(code), 500);
@@ -70,6 +77,13 @@ process.on('SIGTERM', () => shutdown(0));
 if (!process.env.DATABASE_URL) console.warn('DATABASE_URL not set (add it to .env); the API will use its built-in default.');
 
 const pyEnv = { ...process.env, PYTHONPATH: root, PYTHONUNBUFFERED: '1' };
+// Fail before migrations or worker activity, rather than mixing a new app with an old API.
+try {
+  await checkDevPorts();
+} catch (error) {
+  console.error(`[dev] ${error.message}\n[dev] No migrations or services were started.`);
+  process.exit(1);
+}
 // Keep the schema current before either API or scheduler can query new columns.
 console.log('[db] Applying database migrations...');
 const migration = spawnSync(venvPython, ['-m', 'alembic', 'upgrade', 'head'], {
@@ -83,10 +97,28 @@ if (migration.error || migration.status !== 0) {
   process.exit(migration.status || 1);
 }
 // --timeout-graceful-shutdown: open live-update (SSE) streams would otherwise block reloads.
-start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
+const api = start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--host', '127.0.0.1', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
   cwd: apiDir,
   env: pyEnv,
 });
+// Do not launch scheduled writes until the API is actually serving requests.
+let apiReady = false;
+for (let attempt = 0; attempt < 60 && !stopping; attempt++) {
+  if (api.exitCode !== null || api.signalCode !== null) break;
+  try {
+    const response = await fetch('http://127.0.0.1:8000/health', { signal: AbortSignal.timeout(1000) });
+    const health = response.ok ? await response.json() : null;
+    if (health?.api === 'CONNECTED' && health?.database === 'CONNECTED') {
+      apiReady = true;
+      break;
+    }
+  } catch { /* The API is still starting. */ }
+  await delay(250);
+}
+if (!apiReady) {
+  if (!stopping) console.error('[dev] API/database did not become ready; web and worker were not started. Check the API output above.');
+  shutdown(1);
+} else {
 // Autonomous background tasks (Celery beat schedule, run in-process; no Redis needed locally).
 start('worker', '33', venvPython, ['-m', 'app.modules.acquisition.dev_scheduler'], {
   cwd: apiDir,
@@ -96,3 +128,4 @@ start('web', '35', isWin ? 'cmd.exe' : 'npm', isWin ? ['/c', 'npm', 'run', 'dev'
   cwd: webDir,
   env: process.env,
 });
+}

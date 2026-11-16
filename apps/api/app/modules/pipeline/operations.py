@@ -179,6 +179,15 @@ def covered_sections(db):
  except ValueError:feeds={}
  for sid,sections in feeds.items():
   if isinstance(sections,dict) and authorized(db,sid):covered|=set(sections)
+ # Reviewed corroboration sources push evidence (ingest API, reviewed browser capture) rather than being polled.
+ # They may still deliver any section before the deadline unless their policy entry lists the sections they supply,
+ # so their pending sections must wait for the research deadline instead of closing as NO_SOURCE_COVERAGE.
+ try:policy=json.loads(os.getenv('SPORTS_RESEARCH_QUORUM_JSON') or '{}')
+ except ValueError:policy={}
+ for sid,entry in (policy.items() if isinstance(policy,dict) else ()):
+  if isinstance(entry,dict) and entry.get('reviewed') is True and authorized(db,sid):
+   declared=entry.get('sections')
+   covered|=set(declared) & set(SECTIONS) if isinstance(declared,list) else set(SECTIONS)
  return covered
 
 

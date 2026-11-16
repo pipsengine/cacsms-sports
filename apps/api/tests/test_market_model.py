@@ -123,3 +123,5 @@ def test_logistic_promotion_does_not_retire_market_model(store,monkeypatch):
         monkeypatch.setattr(promotion,'assess_challenger',lambda artifact:(True,[],{'calibration_error':.01}))
         promotion.promote_model(db,'challenger',actor='test',at=now)
         assert db.get(m.ModelVersion,'market').status=='ACTIVE' and db.get(m.ModelVersion,'logit').status=='RETIRED'
+        promoted=db.get(m.ModelVersion,'challenger').validation
+        assert promoted['status']=='ACTIVE' and promoted['activation_allowed'] is True and promoted['approved'] is True

@@ -32,8 +32,14 @@ def monitoring(model_id:str,window:int=50):
         recent=[(p,y) for _,p,y in records[-window:]]
         reference=[(p,y) for _,p,y in records[-2*window:-window]]
         result=compare_windows(reference,recent,min_count=max(30,window//2))
+        from app.modules.governance.service import sample_progress,monitoring_status,window_scores
+        from app.modules.governance.policy import assess_model
+        decision=assess_model(window_scores(records[-2*window:-window]),window_scores(records[-window:]),min_samples=window)
         return {'model_id':model_id,'model_status':model.status,'total_settled':len(records),
-                'mode':'PAPER','monitoring':result,'automatic_activation':False}
+                'mode':'PAPER','monitoring':result,'automatic_activation':False,
+                'monitoring_state':monitoring_status(model,decision,len(records)),
+                'monitoring_ready':decision.status=='MONITORED',
+                'sample_progress':sample_progress(db,model_id,records,window)}
 
 @router.get('/models/monitoring/summary')
 def monitoring_summary():

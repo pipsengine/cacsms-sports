@@ -66,7 +66,10 @@ def promote_model(db,model_id,*,actor,at=None):
   from app.modules.prediction.market_model import model_type
   if model_type(active)!=model_type(model):continue  # a logistic promotion never retires the market model
   active.status='RETIRED';retired.append(active.id)
- model.validation={**artifact,'approved':True,'out_of_sample':True,'calibrated':True,'calibration_verified':True,
+ # The training artifact's own CHALLENGER/activation_allowed markers describe it before this gate; replace them so a
+ # promoted record cannot read as both approved and not-allowed.
+ model.validation={**artifact,'status':'ACTIVE','activation_allowed':True,'note':'Promoted by the out-of-sample validation gate',
+                   'approved':True,'out_of_sample':True,'calibrated':True,'calibration_verified':True,
                    'calibration_error':round(evidence['calibration_error'],6),
                    'promotion':{'promoted_at':at.isoformat(),'actor':actor,'evidence':evidence,'retired_model_ids':retired}}
  model.status='ACTIVE'

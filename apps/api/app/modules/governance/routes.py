@@ -33,7 +33,7 @@ def governance_summary():
   snapshots=db.scalars(select(m.ModelGovernanceSnapshot).order_by(m.ModelGovernanceSnapshot.created_at.desc()).limit(200)).all()
   latest={}
   for s in snapshots:latest.setdefault(s.model_id,s)
-  return {'mode':'PAPER','automatic_activation':False,'models':[{'id':x.id,'name':x.name,'version':x.version,'status':x.status,'monitoring':latest[x.id].status if x.id in latest else 'NOT_EVALUATED','reasons':latest[x.id].reasons if x.id in latest else []} for x in models], 'evaluations':len(snapshots)}
+  return {'mode':'PAPER','automatic_activation':False,'models':[{'id':x.id,'name':x.name,'version':x.version,'status':x.status,'monitoring':latest[x.id].status if x.id in latest else 'NOT_EVALUATED','reasons':latest[x.id].reasons if x.id in latest else [],'monitoring_ready':x.id in latest and latest[x.id].status=='MONITORED','sample_progress':(latest[x.id].recent or {}).get('monitoring_progress',{}) if x.id in latest else {}} for x in models], 'evaluations':len(snapshots)}
 @router.get('/governance/evaluations')
 def governance_evaluations():
  with SessionLocal() as db:

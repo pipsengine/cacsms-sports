@@ -10,6 +10,7 @@ A runnable **paper-only foundation** for the proposed sports intelligence platfo
 5. If migration fails, inspect `docker compose logs api postgres`. No historical data is imported.
 
 ## Local development
+- Run `npm run dev` from the repository root to start API, web and worker together. Ports 8000 and 5173 must be free; startup checks both before migrations and waits for API/database readiness before launching the worker. Vite stays on 5173. Ctrl+C stops the services started by this command.
 - Start PostgreSQL 17 and create database/user, set `DATABASE_URL` appropriately.
 - API: `cd apps/api && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --reload`
 - Web: `cd apps/web && npm install && npm run dev`; open http://localhost:5173

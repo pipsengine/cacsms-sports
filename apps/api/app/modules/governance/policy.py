@@ -11,7 +11,10 @@ def assess_model(reference:dict|None,recent:dict|None,min_samples:int=50,max_bri
  if not reference or int(reference.get('n',0))<min_samples:reasons.append('INSUFFICIENT_REFERENCE_SAMPLE')
  if recent and recent.get('brier') is None:reasons.append('MISSING_BRIER')
  if recent and recent.get('ece') is None:reasons.append('MISSING_CALIBRATION')
+ # A sufficiently sized recent window can expose calibration drift even while
+ # the separate reference window is still filling.
+ if recent and int(recent.get('n',0))>=min_samples and recent.get('ece') is not None:
+  if float(recent['ece'])>max_ece:reasons.append('CALIBRATION_DRIFT')
  if not reasons:
   if float(recent['brier'])-float(reference['brier'])>max_brier_delta:reasons.append('BRIER_DEGRADATION')
-  if float(recent['ece'])>max_ece:reasons.append('CALIBRATION_DRIFT')
  return GovernanceDecision('BLOCKED' if reasons else 'MONITORED',tuple(reasons))
