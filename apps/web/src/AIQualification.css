@@ -1,0 +1,29 @@
+/* AI Qualification page (extends MarketIntelligence.css / .dmr) */
+.dmr.aq .aq-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+.dmr.aq .dmr-header{grid-template-columns:minmax(240px,.85fr) minmax(0,1.75fr)}
+.dmr.aq .dmr-kpis .red svg{color:#e0262b;background:#ffe5e5}
+.dmr.aq .dmr-step{align-items:center}
+.dmr.aq .aq-sub{font-size:10px;color:#5d7398;font-weight:600}
+.aq-grid{display:grid;grid-template-columns:minmax(220px,.72fr) minmax(0,2.45fr) minmax(270px,.95fr);gap:12px;align-items:start}
+.aq-filters{display:grid;gap:8px}
+.aq-filters label{display:grid;gap:4px;font-size:12px;font-weight:700;color:#1b2c58}
+.aq-filters select{width:100%;height:36px;border:1px solid #d6e2f4;border-radius:9px;background:#fff;padding:0 8px 0 31px;color:#112b56;font-weight:600}
+.aq-reset{border:1px solid #d6e2f4;background:#fff;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;color:#1b2f5c}
+.aq-status-head{font-size:12px;margin-top:4px}
+.aq-status{display:flex;align-items:center;gap:8px;border:1px solid #e1e9f6;background:#fff;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#172957;cursor:pointer;text-align:left}
+.aq-status.active{background:#075cf4;border-color:#075cf4;color:#fff}
+.aq-status.muted{cursor:default;color:#a05a00;background:#fffaf0;border-color:#f6e2bb}
+.aq-sync{display:flex;align-items:center;gap:8px;font-size:11px;color:#30466c}
+.aq-toolbar{display:flex;gap:8px;align-items:center;margin:6px 0 8px}
+.aq-toolbar .aip-search{flex:1;margin:0}
+.aq-export{display:flex;align-items:center;gap:6px;border:1px solid #d6e2f4;background:#fff;border-radius:9px;padding:7px 12px;font-weight:700;color:#172957;cursor:pointer}
+.aq-export:disabled{opacity:.5;cursor:default}
+.aq-gate{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:6px 2px;font-size:12.5px;color:#172957}
+.aq-gate i{grid-column:1/-1;height:7px;border-radius:5px;background:#e5ecf6;overflow:hidden}
+.aq-gate em{display:block;height:100%;background:linear-gradient(90deg,#10b94a,#25d366);border-radius:5px}
+.aq-gate em.bad-bar{background:linear-gradient(90deg,#f05252,#e0262b)}
+.aq-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mi-row small{font-weight:500;color:#6a7f9f}
+@media(max-width:1500px){.aq-grid{grid-template-columns:minmax(200px,.7fr) minmax(0,2fr)}.aq-grid .mi-side{grid-column:1/-1;grid-template-columns:1fr 1fr}}
+@media(max-width:1250px){.dmr.aq .dmr-header{grid-template-columns:1fr}.dmr.aq .aq-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(max-width:800px){.aq-grid,.aq-two,.aq-grid .mi-side{grid-template-columns:1fr}.dmr.aq .aq-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
