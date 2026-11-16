@@ -122,3 +122,50 @@ tr.muted td{color:#8a9bb8}
 @media(max-width:1150px){.aip-cat-body{grid-template-columns:minmax(170px,.7fr) minmax(0,2fr)}.aip-selected{grid-column:1/-1}}
 @media(max-width:1100px){.aip-cat-head{grid-template-columns:1fr}.aip-coverage{border-left:0;padding-left:0}}
 @media(max-width:700px){.aip-cat-body{grid-template-columns:1fr}.aip-cat-title{grid-template-columns:38px minmax(0,1fr)}}
+/* ---- Reference density: the design fits header → cards in one 1672×941 screen. ---- */
+.dmr.aip{gap:10px}
+.dmr.aip .dmr-header{min-height:0}
+.dmr.aip .dmr-header h2{margin:2px 0}
+.dmr.aip .dmr-kpis>div{min-height:70px}
+.dmr.aip .aip-pipeline{min-height:0;padding:8px 14px}
+.dmr.aip .aip-pipeline .dmr-pipeline-title{flex:0 1 430px}
+.dmr.aip .aip-pipeline .dmr-pipeline-title>svg{width:34px;height:34px}
+.dmr.aip .aip-pipeline .dmr-pipeline-title strong{white-space:nowrap}
+.dmr.aip .aip-pipeline .dmr-step>span svg{width:21px;height:21px}
+.dmr.aip .aip-filters{padding:8px 12px;gap:10px}
+.dmr.aip .aip-filters label{font-size:11px}
+.aip-select{position:relative;display:block}
+.aip-select>svg{position:absolute;left:9px;top:50%;margin-top:1px;transform:translateY(-50%);width:16px;height:16px;color:#3c5274;pointer-events:none}
+.dmr.aip .aip-filters select{margin-top:4px;padding:7px 8px;height:34px}
+.dmr.aip .aip-select select{padding-left:31px}
+.dmr.aip .aip-run{padding:8px 16px;height:36px}
+.dmr.aip .aip-tabs{background:transparent;border:0;box-shadow:none;padding:0;gap:10px}
+.dmr.aip .aip-tabs button{background:#fff;border:1px solid #d7e3f6;border-radius:10px;padding:9px 18px;font-size:13px;flex:0 1 auto;box-shadow:0 2px 6px #153a730d}
+.dmr.aip .aip-tabs button.active{background:#075cf4;border-color:#075cf4;color:#fff}
+.dmr.aip .aip-catalogue{gap:8px;padding:10px 12px}
+.aip-cat-title h3{font-size:16px}.aip-cat-title p{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aip-book{width:34px;height:34px;font-size:17px}
+.aip-families,.aip-market-table,.aip-selected{padding:8px}
+.aip-families button{padding:3px 8px;font-size:12px}
+.aip-families>b{padding:0 4px 4px}
+.aip-search{padding:6px 10px;margin-bottom:4px}
+.aip-market-table td{padding:5px 6px}.aip-market-table th{padding:4px 6px}
+.aip-scroll{max-height:178px}
+.aip-selected-row{padding:4px 2px}
+.dmr.aip .dmr-match{padding:8px 15px}
+.dmr.aip .dmr-match .dmr-crest{width:46px;height:46px}
+.dmr.aip .aip-cards>.dmr-card{padding:10px 12px}
+.dmr.aip .aip-cards .dmr-card-head{margin-bottom:6px}
+.aip-outcomes>div{padding:8px 4px;gap:3px}
+.aip-outcomes .dmr-crest{width:34px;height:34px}
+.aip-insights{gap:5px;margin-bottom:8px}
+.dmr.aip .dmr-note{margin:0}
+@media(max-width:1500px){.dmr.aip .aip-tabs button{padding:8px 10px;font-size:11px}.dmr.aip .aip-pipeline .dmr-pipeline-title{flex-basis:300px}.dmr.aip .aip-pipeline .dmr-pipeline-title strong{white-space:normal}}
+@media(max-width:700px){.aip-cat-title p{white-space:normal}.dmr.aip .aip-tabs{overflow-x:auto}}
+.dmr.aip .aip-tabs{min-height:0;justify-content:flex-start}
+.dmr.aip .aip-tabs button{padding:8px 18px;border-radius:10px}
+.dmr.aip .dmr-match{min-height:0;padding:6px 16px;border-width:4px}
+.dmr.aip .dmr-match h3{margin:0 0 4px;font-size:18px}
+.dmr.aip .aip-cards .dmr-card-head h3{font-size:15px}
+.dmr.aip .aip-cards .dmr-card-head h3 svg{width:18px;height:18px}
+.aip-confidence{font-size:9.5px;padding:3px 7px}
