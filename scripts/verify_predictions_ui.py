@@ -76,6 +76,18 @@ def main():
         (ROOT/'artifacts').mkdir(exist_ok=True);page.screenshot(path=str(ROOT/'artifacts/predictions-test-desktop.png'),full_page=True,animations='disabled')
         for tab in ['SportyBet Markets','Probability Analysis','Model Intelligence','Evidence & Research','Prediction History','Match Prediction']:
             page.get_by_role('tab',name=tab,exact=True).click()
+        for width in (1440,1220):
+            page.set_viewport_size({'width':width,'height':941});page.wait_for_timeout(200)
+            assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),width
+            layout=page.evaluate('''()=>{const box=s=>document.querySelector(s).getBoundingClientRect();
+             const steps=[...document.querySelectorAll('.aip-pipeline .dmr-step b')].map(e=>e.getBoundingClientRect());
+             const arrows=[...document.querySelectorAll('.aip-arrow')].map(e=>e.getBoundingClientRect());
+             const overlap=arrows.some(a=>steps.some(b=>a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom&&a.bottom>b.top));
+             const cards=[...document.querySelectorAll('.aip-cards>.dmr-card')].map(e=>Math.round(e.getBoundingClientRect().top));
+             const filters=[...document.querySelectorAll('.aip-filters label,.aip-run')].map(e=>Math.round(e.getBoundingClientRect().bottom));
+             return {kpisBeside:box('.aip .dmr-kpis').top<box('.aip .dmr-header h2').bottom,overlap,cardRows:new Set(cards).size,filterRows:new Set(filters).size}}''')
+            assert layout=={'kpisBeside':True,'overlap':False,'cardRows':1,'filterRows':1},(width,layout)
+        page.set_viewport_size({'width':1672,'height':941})
         page.reload();page.locator('.dmr-match').wait_for()
         assert page.locator('.aip-selected-row').count()==4, 'selection persists per viewer'
         page.get_by_label('Fixture',exact=True).select_option('f2')

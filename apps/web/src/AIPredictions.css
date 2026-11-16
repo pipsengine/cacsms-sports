@@ -71,7 +71,54 @@
 .aip-verdict b{text-decoration:underline}
 .aip-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 tr.muted td{color:#8a9bb8}
-@media(max-width:1380px){.aip-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.aip-cat-body{grid-template-columns:minmax(180px,.7fr) minmax(0,2fr)}.aip-selected{grid-column:1/-1}}
-@media(max-width:1280px){.dmr.aip .aip-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.aip-cat-head{grid-template-columns:1fr}.aip-coverage{border-left:0;padding-left:0}}
+@media(max-width:1150px){.aip-cat-body{grid-template-columns:minmax(170px,.7fr) minmax(0,2fr)}.aip-selected{grid-column:1/-1}}
+@media(max-width:1200px){.aip-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1100px){.dmr.aip .aip-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.aip-cat-head{grid-template-columns:1fr}.aip-coverage{border-left:0;padding-left:0}}
 @media(max-width:700px){.dmr.aip .aip-filters{grid-template-columns:1fr}.aip-table th,.aip-table td{padding:6px 4px}.aip .aip-run{justify-content:center}.aip-cards,.aip-cat-body,.aip-two{grid-template-columns:1fr}.aip-outcomes b{font-size:18px}}
 .aip-decision-icon{display:inline-flex;vertical-align:middle}.aip-decision-icon.good{color:#0b9b45}.aip-decision-icon.bad{color:#d92d2d}.aip-decision-icon.muted{color:#8a9bb8}
+
+/* Keep the reference composition from ~1100px up (shared .dmr rules stack earlier). Must stay after the rules above. */
+.dmr.aip .dmr-header{display:grid;grid-template-columns:minmax(250px,1fr) minmax(0,1.5fr);gap:16px;align-items:center}
+.dmr.aip .dmr-header h2{font-size:clamp(27px,2.5vw,34px)}
+.dmr.aip .dmr-header p{font-size:12px}
+.dmr.aip .dmr-kpis{margin-top:0;min-width:0;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.dmr.aip .dmr-kpis>div{min-width:0;min-height:76px;padding:10px 8px;grid-template-columns:38px minmax(0,1fr)}
+.dmr.aip .dmr-kpis svg{width:38px;height:38px;padding:8px}
+.dmr.aip .dmr-kpis span{white-space:normal;font-size:11px;line-height:1.2}
+.dmr.aip .dmr-kpis b{font-size:clamp(17px,1.45vw,23px)}
+.dmr.aip .aip-pipeline{flex-wrap:nowrap;gap:12px;padding:10px 14px}
+.dmr.aip .aip-pipeline .dmr-pipeline-title{flex:0 1 290px;min-width:190px}
+.dmr.aip .aip-pipeline .dmr-pipeline-title strong{font-size:clamp(14px,1.15vw,18px)}
+.dmr.aip .aip-pipeline .dmr-pipeline-title small{font-size:10px}
+.dmr.aip .aip-pipeline .dmr-steps{flex:1;min-width:0;display:flex;align-items:flex-start;justify-content:space-between;gap:2px}
+.dmr.aip .aip-pipeline .dmr-step{flex:0 1 auto;min-width:0}
+.dmr.aip .aip-pipeline .dmr-step b{font-size:11px;line-height:1.15}
+.dmr.aip .aip-arrow{flex:0 0 auto;width:15px;height:15px;margin-top:5px;color:#00ad38}
+.dmr.aip .aip-pipeline .dmr-cycle{flex:0 0 auto;max-width:150px}
+@media(max-width:1500px){.aip-cards{gap:10px}.aip-cards>.dmr-card{padding:12px}.aip-cards .dmr-card-head h3{font-size:14px}.aip-cards .dmr-card-head h3 svg{width:18px;height:18px}
+ .aip-outcomes{gap:5px}.aip-outcomes>div{padding:9px 2px}.aip-outcomes b{font-size:clamp(15px,1.35vw,21px)}.aip-outcomes small{font-size:11px}.aip-outcomes .dmr-crest{width:30px;height:30px}
+ .aip-cards .aip-table th,.aip-cards .aip-table td,.aip-metrics td{padding:5px 3px;font-size:11px}.aip-insights li{font-size:11px}.aip-verdict{font-size:12px;padding:8px}
+ .aip .aip-run{padding:10px 12px;font-size:13px}.aip-cat-body{grid-template-columns:minmax(165px,.65fr) minmax(0,1.9fr) minmax(200px,.85fr)}.aip-cat-head{grid-template-columns:minmax(0,1.5fr) auto minmax(170px,.7fr);gap:12px}}
+@media(max-width:1100px){.dmr.aip .dmr-header{grid-template-columns:1fr}.dmr.aip .aip-pipeline{flex-wrap:wrap}.dmr.aip .aip-pipeline .dmr-pipeline-title{flex-basis:100%}}
+@media(max-width:700px){.dmr.aip .dmr-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dmr.aip .aip-pipeline .dmr-steps{flex-wrap:wrap;justify-content:flex-start;gap:6px}}
+.aip-cards .dmr-card-head{flex-wrap:wrap;row-gap:4px}
+.aip-cards .dmr-card-head h3{white-space:nowrap}
+.aip-cards .aip-table{table-layout:auto}
+.aip-cards .aip-table th:last-child,.aip-cards .aip-table td:last-child{width:18px;padding-left:0;padding-right:0}
+.aip-form-row>span:first-child{white-space:nowrap}
+@media(max-width:1500px){.aip-confidence{font-size:9px;padding:3px 6px}.aip-form-row{gap:4px}.aip-form-row .dmr-form span{width:15px;height:15px;font-size:9px}}
+.aip-short{display:none}
+.aip-cat-title{flex-wrap:nowrap}.aip-cat-title>div{min-width:0}.aip-cat-title .aip-sync{flex-shrink:0}
+@media(max-width:1500px){.aip-cards{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr)}
+ .aip-families button{font-size:11px;white-space:nowrap;padding:5px 6px}
+ .aip-metrics td:nth-child(3){width:auto;min-width:36px}.aip-metrics td:first-child{white-space:normal;line-height:1.2}}
+@media(max-width:1350px){.aip-long{display:none}.aip-short{display:inline}.aip-cards .aip-table th,.aip-cards .aip-table td{font-size:10.5px}
+ .aip-form-row{flex-wrap:wrap}.aip-form-row>span:first-child{flex-basis:100%}}
+@media(max-width:1200px){.aip-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.aip-long{display:inline}.aip-short{display:none}.aip-form-row{flex-wrap:nowrap}.aip-form-row>span:first-child{flex-basis:auto}}
+.aip-cat-title{display:grid;grid-template-columns:38px minmax(0,1fr) auto;column-gap:10px;row-gap:6px}
+@media(max-width:1500px){.aip-cat-title{grid-template-columns:38px minmax(0,1fr)}.aip-cat-title .aip-sync{grid-column:2;justify-self:start}}
+.aip-form-row{flex-wrap:wrap;row-gap:4px}.aip-families button svg{flex-shrink:0}
+/* Narrow layouts must win over the 1500px compaction rules above. */
+@media(max-width:1150px){.aip-cat-body{grid-template-columns:minmax(170px,.7fr) minmax(0,2fr)}.aip-selected{grid-column:1/-1}}
+@media(max-width:1100px){.aip-cat-head{grid-template-columns:1fr}.aip-coverage{border-left:0;padding-left:0}}
+@media(max-width:700px){.aip-cat-body{grid-template-columns:1fr}.aip-cat-title{grid-template-columns:38px minmax(0,1fr)}}
