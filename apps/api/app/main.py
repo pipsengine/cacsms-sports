@@ -513,6 +513,9 @@ app.include_router(market_intelligence_router)
 # Autonomous AI Qualification (v3.7 patch, runs inside the autonomy cycle)
 from app.modules.qualification.routes_autonomous import router as qualification_router
 app.include_router(qualification_router)
+# Autonomous paper Accumulator Engine (runs inside the autonomy cycle)
+from app.modules.strategies.accumulator_routes import router as accumulator_router
+app.include_router(accumulator_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

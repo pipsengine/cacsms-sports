@@ -1,0 +1,16 @@
+/* Accumulator Engine page (extends MarketIntelligence.css / AIQualification.css) */
+.ae-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) minmax(0,.95fr);gap:12px;align-items:stretch}
+.ae-link{border:0;background:transparent;color:#075cf4;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12.5px}
+.ae-paper{display:grid;justify-items:center;gap:4px;background:linear-gradient(120deg,#e8f1ff,#f1f6ff);border:1px solid #cfe0fb;border-radius:12px;padding:14px;margin-bottom:8px}
+.ae-paper b{font-size:30px;letter-spacing:.04em;color:#0b2a6b}.ae-paper small{color:#30466c;font-size:12px}
+.ae-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.ae-stats>div{border:1px solid #e1e9f6;border-radius:11px;padding:8px 10px;background:#fff}
+.ae-stats>div.good{background:#eaf9ef;border-color:#c9efd6}
+.ae-stats small{display:block;font-size:11px;color:#30466c}.ae-stats b{font-size:20px;color:#10173e}.ae-stats .good b{color:#08843b}
+.ae-chart{width:100%;height:auto;max-height:180px}
+.ae-chart line{stroke:#e5ecf6;stroke-width:1}.ae-chart text{font-size:10px;fill:#6a7f9f}
+.ae-chart .area{fill:#2d6cff22}.ae-chart .line{fill:none;stroke:#1350f0;stroke-width:2.5}.ae-chart circle{fill:#1350f0}
+.ae-legs td{background:#f7faff;font-size:12px;color:#30466c}.ae-legs div{padding:3px 0}
+.ae .warn-ic{color:#e38b00}
+@media(max-width:1400px){.ae-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:800px){.ae-grid{grid-template-columns:1fr}.ae-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
