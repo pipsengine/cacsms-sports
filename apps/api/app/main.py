@@ -504,6 +504,9 @@ app.include_router(match_analysis_router)
 # Market catalogue + paper-only prediction evaluation (canonical odds/forecasts; no scraping)
 from app.modules.market_scanner.routes import router as market_scanner_router
 app.include_router(market_scanner_router)
+# Market catalogue, per-fixture availability and AI market scans (scans run in the Evaluate stage)
+from app.modules.markets.catalogue_routes import router as market_catalogue_router
+app.include_router(market_catalogue_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

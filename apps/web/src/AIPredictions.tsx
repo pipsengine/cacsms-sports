@@ -6,6 +6,7 @@ import {useResearchScope,useResearchRemote} from './ResearchCatalogue';
 import './DeepMatchResearch.css';
 import './MatchAnalysis.css';
 import './AIPredictions.css';
+import MarketCatalogue from './MarketCatalogue';
 const CAT='/api/v1/sports/research/catalog/';
 type Option={id:string;name:string;label?:string;is_current?:boolean};
 type Fixture={id:string;home:string;away:string;kickoff:string;status:string};
@@ -44,7 +45,7 @@ function DecisionIcon({row}:{row:Evaluation}){const ok=row.decision==='QUALIFIED
 function Decision({row}:{row:Evaluation}){const ok=row.decision==='QUALIFIED';return <span className={'aip-decision '+(ok?'good':row.decision==='NO_MARKET_PRICE'?'muted':'')} title={row.reasons.map(r=>REASONS[r]||r).join(', ')||'All gates passed'}>{ok?'Qualified':row.decision==='NO_MARKET_PRICE'?'No price':REASONS[row.reasons[0]]||'Rejected'}</span>}
 export default function AIPredictions(){
  const {selection:s,change,revision,refresh}=useResearchScope();const location=useLocation();const navigate=useNavigate();const incoming=new URLSearchParams(location.search).get('fixture_id')||'';
- const[tab,setTab]=useState('Match Prediction'),[family,setFamily]=useState('All'),[search,setSearch]=useState(''),[book,setBook]=useState(''),[editing,setEditing]=useState(false),[chosen,setChosen]=useState<string[]|null>(readStored);
+ const[tab,setTab]=useState('Match Prediction'),[book]=useState('');
  const sports=useResearchRemote<Option[]>(CAT+'sports',revision);
  const countries=useResearchRemote<{name:string}[]>(s.sport?CAT+'countries?'+new URLSearchParams({sport:s.sport}):null,revision);
  const leagues=useResearchRemote<Option[]>(s.sport?CAT+'leagues?'+new URLSearchParams({sport:s.sport,...s.country?{country:s.country}:{}}):null,revision);
@@ -62,24 +63,13 @@ export default function AIPredictions(){
  useEffect(()=>{if(!incoming&&!s.fixture&&fixtures.data?.length)change('fixture',fixtures.data[0].id)},[incoming,s.fixture,fixtures.data]);
  useEffect(()=>{if(incoming&&f){if(s.sport!==f.sport)change('sport',f.sport);if(s.country!==(f.country||''))change('country',f.country||'');if(s.league!==f.competition_id)change('league',f.competition_id);if(s.season!==(f.season_id||''))change('season',f.season_id||'');change('fixture',f.id)}},[incoming,f?.id]);
  const select=(key:'sport'|'country'|'league'|'season'|'fixture',v:string)=>{if(incoming)navigate(location.pathname,{replace:true});change(key,v)};
- const markets=d?.markets||[];
- // Default selection: markets with at least one ACTIVE-model forecast; stored per viewer only.
- const selected=useMemo(()=>new Set(chosen??markets.filter(mk=>mk.selections.some(x=>x.predicted)).map(mk=>mk.key)),[chosen,markets]);
- const toggle=(key:string)=>{const next=new Set(selected);next.has(key)?next.delete(key):next.add(key);const list=[...next];setChosen(list);try{localStorage.setItem(STORE,JSON.stringify(list))}catch{}};
- const visible=markets.filter(mk=>(family==='All'||mk.family===family)&&(mk.name+' '+mk.key+' '+mk.selections.map(x=>x.name).join(' ')).toLowerCase().includes(search.toLowerCase()));
  const evals=d?.evaluations||[];
- const top=(()=>{const seen=new Set<string>();return evals.filter(r=>(selected.has(r.market_key)||!markets.some(mk=>mk.key===r.market_key))&&!seen.has(r.market_key)&&seen.add(r.market_key)).slice(0,3)})();
+ const top=(()=>{const seen=new Set<string>();return evals.filter(r=>!seen.has(r.market_key)&&seen.add(r.market_key)).slice(0,3)})();
  const online=d?.runtime.worker_online,home=d?.teams.home,away=d?.teams.away,probs=d?.outcome.probabilities||{};
  const kpis=[{title:'Fixtures Analysed',value:n(d?.metrics.fixtures_analysed),icon:Layers3,tone:'purple'},{title:'Predictions Generated',value:n(d?.metrics.predictions),icon:Target,tone:'orange'},{title:'Model Brier (Holdout)',value:d?.metrics.model_brier==null?'—':d.metrics.model_brier.toFixed(3),icon:ShieldCheck,tone:'green'},{title:'Avg. Probability',value:pct(d?.metrics.average_probability),icon:BarChart3,tone:'blue'}];
  const rank=(t?:Team)=>t?.standing?<><b>{ordinal(t.standing.rank??t.standing.computed_rank??0)}</b><span>{t.standing.points} pts</span></>:'Rank unavailable at cutoff';
  const bookName=d?.bookmaker||'Bookmaker';
- const catalogue=<section className="dmr-card aip-catalogue"><div className="aip-cat-head"><div className="aip-cat-title"><span className="aip-book">{bookName[0]}</span><div><h3>{bookName} Markets <small>(Discovered Catalogue)</small></h3><p title="Markets observed in stored, source-backed odds snapshots. Completeness of the bookmaker catalogue is not verified.">All markets observed for the selected fixture · completeness unverified.</p></div>{d?.coverage.last_sync&&<span className={'aip-sync '+(d.coverage.fresh?'good':'')}>{d.coverage.fresh?<CheckCircle2 size={14}/>:<Clock3 size={14}/>}{d.coverage.fresh?'Synced & up to date':'Odds older than 15 min'}</span>}</div>
-   <div className="aip-sync-times"><RefreshCcw size={20}/><span><small>Last Sync: {fmt(d?.coverage.last_sync)}</small><small>Next Sync: {clock(d?.coverage.next_sync)}</small></span>{(d?.bookmakers.length||0)>1&&<select aria-label="Bookmaker" value={d?.bookmaker||''} onChange={e=>setBook(e.target.value)}>{d!.bookmakers.map(b=><option key={b}>{b}</option>)}</select>}</div>
-   <div className="aip-coverage" title="Share of discovered selections that have an ACTIVE-model forecast"><span>Modelled Coverage</span><b>{pct(d?.coverage.percent)}</b><i><em style={{width:(d?.coverage.percent||0)+'%'}}/></i></div></div>
-  <div className="aip-cat-body"><nav className="aip-families" aria-label="Market categories"><b>Market Categories</b><button type="button" className={family==='All'?'active':''} onClick={()=>setFamily('All')}><Grid2X2 size={15}/>All Markets ({markets.length})</button>{(d?.families||[]).filter(x=>x.count).map(x=>{const Icon=familyIcon[x.name]||Layers3;return <button type="button" key={x.name} disabled={!x.count} className={family===x.name?'active':''} onClick={()=>setFamily(x.name)}><Icon size={15}/>{x.name} ({x.count})</button>})}</nav>
-   <div className="aip-market-table"><label className="aip-search"><Search size={16}/><input aria-label="Search markets" placeholder={'Search '+bookName+' markets (e.g. Over 2.5, BTTS, Handicap)'} value={search} onChange={e=>setSearch(e.target.value)}/></label>
-    {visible.length?<div className="aip-scroll"><table><thead><tr><th/><th>{bookName} Market</th><th>Selection Options</th><th>Latest Odds</th></tr></thead><tbody>{visible.map(mk=><tr key={mk.key}><td><input type="checkbox" aria-label={'Select '+mk.name} checked={selected.has(mk.key)} onChange={()=>toggle(mk.key)}/></td><td><b>{mk.name}</b></td><td>{mk.selections.map(x=>x.name).join(' | ')}</td><td>{mk.selections.map(x=>x.odds.toFixed(2)).join(' | ')}</td></tr>)}</tbody></table></div>:<Empty>{markets.length?'No markets match this filter.':'No odds snapshots stored for this fixture. Markets appear once an authorized collector records them.'}</Empty>}</div>
-   <div className="aip-selected"><div className="aip-selected-head"><b><ListChecks size={17}/>Selected Markets for Prediction ({markets.filter(mk=>selected.has(mk.key)).length})</b><button type="button" onClick={()=>setEditing(x=>!x)}>{editing?<><Check size={14}/>Done</>:<><Pencil size={14}/>Edit</>}</button></div>{markets.filter(mk=>selected.has(mk.key)).map(mk=>{const modelled=mk.selections.some(x=>x.predicted);return <div key={mk.key} className="aip-selected-row"><span className="aip-check"><Check size={13}/></span><span>{mk.name}</span>{editing?<button type="button" aria-label={'Remove '+mk.name} onClick={()=>toggle(mk.key)}><X size={14}/></button>:modelled?<CheckCircle2 className="good" size={17} aria-label="Modelled"/>:<Clock3 size={16} aria-label="No model forecast" className="muted"/>}</div>})}{!markets.some(mk=>selected.has(mk.key))&&<p className="dmr-caption">Tick markets in the catalogue to track them.</p>}</div></div></section>;
+ const catalogue=<MarketCatalogue fixtureId={fixtureId} revision={revision}/>;
  return <div className="dmr aip">
   {document.getElementById('deep-runtime-badge')&&createPortal(<span className={'dmr-runtime-badge '+(online?'online':'')}><Bot size={23}/>Autonomous Mode: {online?'ON':d?'OFF':'Checking'}<i/></span>,document.getElementById('deep-runtime-badge')!)}
   <div className="dmr-header"><div className="dmr-intro"><div className="dmr-eyebrow">SPORTS INTELLIGENCE</div><h2>AI Predictions</h2><p>Model-driven match predictions, probability analysis and market intelligence across the discovered bookmaker catalogue.</p></div><div className="dmr-kpis">{kpis.map(k=><div className={k.tone} key={k.title}><k.icon/><span>{k.title}</span><b>{k.value}</b></div>)}</div></div>

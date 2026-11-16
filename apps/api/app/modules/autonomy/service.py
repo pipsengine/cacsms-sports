@@ -86,6 +86,8 @@ def cycle(factory=SessionLocal,fetcher=None):
   report['errors'].extend(report['standings']['errors'])
   from app.modules.acquisition.source_policy import register_prohibited_sources
   with factory.begin() as db:report['prohibited_sources_recorded']=register_prohibited_sources(db)
+  from app.modules.markets.catalogue import seed as seed_market_catalogue
+  with factory.begin() as db:report['market_catalogue_seeded']=seed_market_catalogue(db)
   from app.modules.autonomy.open_intelligence import collect as collect_intelligence
   report['open_intelligence']=collect_intelligence(factory)
   report['errors'].extend(report['open_intelligence'].get('errors',[]))

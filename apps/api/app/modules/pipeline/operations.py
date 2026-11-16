@@ -371,6 +371,12 @@ def import_prices(db,fixture_id,at):
 
 def evaluate(db,run,at):
  import_prices(db,run.fixture_id,at)
+ # Market discovery + scan of every observed outcome (throttled; isolated so it can never break evaluation).
+ try:
+  from app.modules.markets.catalogue import scan as scan_markets
+  with db.begin_nested():scan_markets(db,run.fixture_id,at=at,trigger='PIPELINE_EVALUATE')
+ except Exception:
+  import logging;logging.getLogger(__name__).exception('Market scan failed for fixture %s',run.fixture_id)
  quotes=db.scalars(select(m.Odds).where(m.Odds.fixture_id==run.fixture_id).order_by(m.Odds.observed_at.desc(),m.Odds.id)).all()
  latest={}
  for quote in quotes:

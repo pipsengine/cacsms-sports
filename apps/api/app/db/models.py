@@ -418,6 +418,93 @@ class MarketEvidence(Base):
  observation_id:Mapped[str]=mapped_column(ForeignKey('sources.observations.id'))
  source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
 
+
+# Market catalogue: registered definitions vs. source-observed availability (never conflated) ---------------
+class MarketCategory(Base):
+ __tablename__='market_categories';__table_args__={'schema':'markets'}
+ key:Mapped[str]=mapped_column(String(40),primary_key=True)
+ name:Mapped[str]=mapped_column(String(80))
+ position:Mapped[int]=mapped_column(Integer,default=0)
+class MarketDefinition(Base):
+ __tablename__='market_definitions';__table_args__=(UniqueConstraint('sport_key','name',name='market_definition_sport_name'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(120),primary_key=True)
+ sport_key:Mapped[str]=mapped_column(String(40),index=True)
+ sport_name:Mapped[str]=mapped_column(String(60))
+ category_key:Mapped[str]=mapped_column(ForeignKey('markets.market_categories.key'),index=True)
+ name:Mapped[str]=mapped_column(String(160))
+ kind:Mapped[str]=mapped_column(String(20),default='SCHEDULED')
+ period:Mapped[str]=mapped_column(String(20),default='FULL_TIME')
+ outcome_type:Mapped[str]=mapped_column(String(30))
+ parameter:Mapped[dict|None]=mapped_column(JSON,default=None)
+ origin:Mapped[str]=mapped_column(String(20),default='REGISTERED')
+ where_offered:Mapped[bool]=mapped_column(Boolean,default=False)
+ registry_version:Mapped[str|None]=mapped_column(String(40))
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+class MarketOutcome(Base):
+ __tablename__='market_outcomes';__table_args__=(UniqueConstraint('definition_id','key',name='market_outcome_key'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ definition_id:Mapped[str]=mapped_column(ForeignKey('markets.market_definitions.id'),index=True)
+ key:Mapped[str]=mapped_column(String(60))
+ label:Mapped[str]=mapped_column(String(80))
+ position:Mapped[int]=mapped_column(Integer,default=0)
+class BookmakerMarketMapping(Base):
+ __tablename__='bookmaker_market_mappings';__table_args__=(UniqueConstraint('source','source_market_key',name='bookmaker_market_mapping_key'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ source:Mapped[str]=mapped_column(String(80))
+ source_market_key:Mapped[str]=mapped_column(String(100))
+ definition_id:Mapped[str]=mapped_column(ForeignKey('markets.market_definitions.id'))
+ line_from_key:Mapped[bool]=mapped_column(Boolean,default=False)
+class BookmakerMarketAvailability(Base):
+ __tablename__='bookmaker_market_availability';__table_args__=(UniqueConstraint('fixture_id','bookmaker','definition_id','line',name='market_availability_key'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'),index=True)
+ bookmaker:Mapped[str]=mapped_column(String(60))
+ definition_id:Mapped[str]=mapped_column(ForeignKey('markets.market_definitions.id'))
+ line:Mapped[str]=mapped_column(String(20),default='')
+ source_market_key:Mapped[str]=mapped_column(String(100))
+ status:Mapped[str]=mapped_column(String(20),default='AVAILABLE')
+ source_id:Mapped[str|None]=mapped_column(ForeignKey('sources.providers.id'))
+ first_seen_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+ last_seen_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+ last_odds_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+class MarketModelCapability(Base):
+ __tablename__='market_model_capabilities';__table_args__=(UniqueConstraint('model_id','definition_id','outcome_key','line',name='market_capability_key'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ model_id:Mapped[str]=mapped_column(ForeignKey('models.versions.id'),index=True)
+ definition_id:Mapped[str]=mapped_column(ForeignKey('markets.market_definitions.id'))
+ outcome_key:Mapped[str]=mapped_column(String(60))
+ line:Mapped[str]=mapped_column(String(20),default='')
+ basis:Mapped[str]=mapped_column(String(160))
+class MarketScanRun(Base):
+ __tablename__='market_scan_runs';__table_args__={'schema':'markets'}
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'),index=True)
+ trigger:Mapped[str]=mapped_column(String(30))
+ status:Mapped[str]=mapped_column(String(20))
+ started_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ completed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ odds_watermark:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ summary:Mapped[dict]=mapped_column(JSON,default=dict)
+class MarketScanResult(Base):
+ __tablename__='market_scan_results';__table_args__={'schema':'markets'}
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ scan_id:Mapped[str]=mapped_column(ForeignKey('markets.market_scan_runs.id'),index=True)
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'),index=True)
+ definition_id:Mapped[str]=mapped_column(ForeignKey('markets.market_definitions.id'))
+ bookmaker:Mapped[str]=mapped_column(String(60))
+ line:Mapped[str]=mapped_column(String(20),default='')
+ outcome_key:Mapped[str]=mapped_column(String(60))
+ odds_id:Mapped[str|None]=mapped_column(ForeignKey('markets.odds_snapshots.id'))
+ prediction_id:Mapped[str|None]=mapped_column(ForeignKey('predictions.forecasts.id'))
+ decimal_odds:Mapped[float|None]=mapped_column(Numeric(12,5))
+ odds_observed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ statuses:Mapped[list]=mapped_column(JSON,default=list)
+ metrics:Mapped[dict]=mapped_column(JSON,default=dict)
+ decision:Mapped[str]=mapped_column(String(30))
+ reasons:Mapped[list]=mapped_column(JSON,default=list)
+ rank:Mapped[int|None]=mapped_column(Integer)
+ correlation_group:Mapped[str|None]=mapped_column(String(160))
+
 # Every supported data mutation publishes a transactional event in the same commit.
 from app.modules.pipeline.events import install as _install_pipeline_events
 _install_pipeline_events()

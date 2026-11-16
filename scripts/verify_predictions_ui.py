@@ -43,34 +43,64 @@ def workspace(ident,empty=False):
         metrics=dict(fixtures_analysed=24736,predictions=19842,model_brier=0.198,average_probability=71.4),runtime=dict(worker_online=True,next_run_at='2026-11-16T16:00:00Z'),message='Test prediction context')
 
 
+CATS=[('match_result','Match Result / Winner'),('double_chance','Double Chance'),('goals','Goals / Points / Runs'),('over_under','Over / Under'),('handicap','Handicap'),
+      ('btts','Both Teams to Score'),('correct_score','Correct Score'),('segments','Half / Period / Quarter / Set'),('corners','Corners'),('cards','Cards'),('player','Player Markets'),
+      ('team','Team Markets'),('specials','Specials'),('live','Live Markets'),('outrights','Outrights / Futures'),('sport_specific','Other Sport-Specific Markets')]
+
+
+def catalogue_view(ident,empty=False):
+    def mk(i,name,cat,outs,offered=False,supported=False,decision=None,prob=None,lines=()):
+        st=['REGISTERED']+(['AVAILABLE','STALE'] if offered else [])+(['MODEL_SUPPORTED'] if supported else [])+(['EVALUATED'] if decision and decision!='UNSUPPORTED' else [])+(['UNSUPPORTED'] if decision=='UNSUPPORTED' else [])
+        return dict(id=f'football.m{i}',name=name,category=cat,kind='SCHEDULED',period='FULL_TIME',outcome_type='enumerated',origin='REGISTERED',where_offered=False,
+                    outcomes=[{'key':o,'label':o.title()} for o in outs],parameter=None,statuses=st,offered=offered,bookmakers=['Bet365'] if offered else [],lines=list(lines),
+                    odds=[{'bookmaker':'Bet365','line':'','outcome':o,'decimal_odds':1.9} for o in outs] if offered else [],odds_observed_at=STAMP if offered else None,
+                    model_supported=supported,research='VERIFIED',probability=prob,decision=decision)
+    offered=[] if empty else [mk(0,'Full Time Result (1X2)','match_result',['HOME','DRAW','AWAY'],True,True,'REJECTED',72.4),mk(1,'Total Goals Over/Under','over_under',['OVER','UNDER'],True,False,'UNSUPPORTED',None,['2.5']),
+             mk(2,'Asian Handicap','handicap',['HOME','AWAY'],True,False,'UNSUPPORTED',None,['-1.75'])]
+    registered=[mk(10+i,f'Registered market {i}',CATS[i%len(CATS)][0],['YES','NO']) for i in range(40)]
+    markets=offered+registered
+    return dict(fixture_id=ident,sport='football',markets=markets,categories=[{'key':k,'name':n,'registered':sum(x['category']==k for x in markets)} for k,n in CATS],
+                coverage=dict(registered=len(markets),discovered=0,offered=len(offered),fresh=0,stale=len(offered),model_supported=1 if offered else 0,evaluated=1 if offered else 0,qualified=0,
+                              unsupported=2 if offered else 0,unavailable=0,missing_data_reasons={'ODDS_STALE_OR_FUTURE':3} if offered else {'NO_SOURCE_BACKED_ODDS_FOR_FIXTURE':1},last_sync=STAMP if offered else None),
+                notice='REGISTERED means the platform understands the market type.',scan=None)
+
+
 def main():
     with sync_playwright() as p:
         b=p.chromium.launch();page=b.new_page(viewport={'width':1672,'height':941});errors=[]
         page.on('pageerror',lambda e:errors.append(str(e)))
-        page.add_init_script("try{if(!sessionStorage.getItem('aip-test')){localStorage.removeItem('cacsms.predictions.markets');sessionStorage.setItem('aip-test','1')}}catch(e){}")
+        page.add_init_script("try{if(!sessionStorage.getItem('aip-test')){localStorage.removeItem('cacsms.predictions.marketDefinitions');sessionStorage.setItem('aip-test','1')}}catch(e){}")
         def respond(route):
             url=route.request.url
-            if '/market-scanner/fixtures/' in url:
+            if '/markets/fixtures/' in url:
+                ident=url.split('/fixtures/')[1].split('?')[0].split('/')[0];data=catalogue_view(ident,empty=ident=='f2')
+            elif '/market-scanner/fixtures/' in url:
                 ident=url.split('/fixtures/')[1].split('?')[0];data=workspace(ident,empty=ident=='f2')
             else:
                 endpoint=url.split('/catalog/')[1].split('?')[0]
                 data={'sports':[dict(id='sport',name='Football')],'countries':[dict(name='Germany')],'leagues':[dict(id='league',name='Bundesliga')],'seasons':[dict(id='season',label='2026/2027',is_current=True)],
                       'fixtures':[dict(id='f1',home='FC Bayern München',away='1. FC Köln',kickoff='2026-11-16T16:30:00Z',status='SCHEDULED'),dict(id='f2',home='Other Home',away='Other Away',kickoff='2026-11-16T16:30:00Z',status='SCHEDULED')]}[endpoint]
             route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
-        page.route('**/research/catalog/**',respond);page.route('**/market-scanner/**',respond)
+        page.route('**/research/catalog/**',respond);page.route('**/market-scanner/**',respond);page.route('**/markets/fixtures/**',respond)
         page.goto(BASE+'/sports/predictions');page.locator('.dmr-match').wait_for()
         assert page.locator('.aip-tabs button').count()==6
         assert page.locator('.aip-pipeline .dmr-step').count()==7
-        assert page.locator('.aip-market-table tbody tr').count()==6
-        assert page.locator('.aip-selected-row').count()==3, 'default selection = modelled markets'
-        page.get_by_label('Select Double Chance').check();assert page.locator('.aip-selected-row').count()==4
-        page.get_by_role('button',name='Handicap Markets (1)').click();assert page.locator('.aip-market-table tbody tr').count()==1
-        page.get_by_role('button',name='All Markets (6)').click()
-        page.get_by_label('Search markets').fill('over');assert page.locator('.aip-market-table tbody tr').count()==1
+        rows=page.locator('.mc-explorer tbody tr')
+        assert rows.count()==3, 'offered view shows only observed markets'
+        assert page.get_by_role('button',name='Offered for this fixture (3)').get_attribute('class')=='active'
+        assert page.locator('.mc-cov-row').count()==10 and page.locator('.mc-categories button').count()==17
+        tracked=lambda:page.locator('.mc-cov-row',has_text='Selected for tracking').locator('b').inner_text()
+        assert tracked()=='1', 'default tracking = offered and model-supported'
+        page.get_by_label('Select Total Goals Over/Under').check();assert tracked()=='2'
+        page.get_by_role('button',name='Registered catalogue (43)').click();assert rows.count()==43
+        assert page.locator('.mc-explorer tr.mc-registered').count()==40, 'registered rows are visually distinct and never offered'
+        page.locator('.mc-categories button',has_text='Handicap').click();assert rows.count()==4
+        page.locator('.mc-categories button',has_text='All Markets').click()
+        page.get_by_role('button',name='Offered for this fixture (3)').click()
+        page.get_by_label('Search markets').fill('over');assert rows.count()==1
         page.get_by_label('Search markets').fill('')
         assert page.locator('.aip-outcomes>div').count()==3 and page.get_by_text('82.4%').count()>=2
         assert page.locator('.aip-cards .aip-table tbody tr').count()==3 and page.locator('.aip-cards .aip-decision-icon.good').count()==3
-        assert page.locator('.aip-families button').count()==7, 'empty categories hidden'
         page.get_by_text('Model favours home win (82.4%).').wait_for()
         page.locator('.dmr-kickoff b',has_text='Bundesliga — Matchday 12').wait_for()
         (ROOT/'artifacts').mkdir(exist_ok=True);page.screenshot(path=str(ROOT/'artifacts/predictions-test-desktop.png'),full_page=True,animations='disabled')
@@ -89,10 +119,12 @@ def main():
             assert layout=={'kpisBeside':True,'overlap':False,'cardRows':1,'filterRows':1},(width,layout)
         page.set_viewport_size({'width':1672,'height':941})
         page.reload();page.locator('.dmr-match').wait_for()
-        assert page.locator('.aip-selected-row').count()==4, 'selection persists per viewer'
+        assert page.locator('.mc-cov-row',has_text='Selected for tracking').locator('b').inner_text()=='2', 'selection persists per viewer'
         page.get_by_label('Fixture',exact=True).select_option('f2')
         page.locator('.dmr-home h3',has_text='Other Home').wait_for()
         page.get_by_text('No 1X2 forecast from an ACTIVE model before the cutoff.').wait_for()
+        assert page.get_by_role('button',name='Registered catalogue (40)').get_attribute('class')=='active', 'no odds -> registered catalogue shown immediately'
+        assert page.locator('.mc-explorer tr.mc-registered').count()==40 and page.get_by_text('No source-backed odds for this fixture yet').count()==1
         assert page.get_by_text('No ACTIVE-model forecast to summarise.').count()==1
         assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         # Stale backend ("Unknown resource"): background refreshes must not flicker the error/empty state.
