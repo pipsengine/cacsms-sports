@@ -50,12 +50,34 @@ def market_name(key):
     if k in NAMES:return NAMES[k]
     line=re.search(r'(\d+(?:[._]\d+)?)$',str(key))
     value=line.group(1).replace('_','.') if line else ''
+    if k.startswith('HOMEOU'):return ('Home Over/Under '+value).strip()
+    if k.startswith('AWAYOU'):return ('Away Over/Under '+value).strip()
+    if k=='ODDEVEN':return 'Odd/Even Goals'
     if k.startswith(('OU','OVERUNDER','TOTAL')):return ('Over/Under '+value).strip()
     if k.startswith('AH') or k.startswith('ASIAN'):return ('Asian Handicap '+value).strip()
     return str(key).replace('_',' ').title()
 
 
 def outcome_name(key):return OUTCOMES.get(str(key).upper(),str(key).replace('_',' ').title())
+
+
+def selection_name(market_key,outcome_key):
+    """Selection label as bookmakers show it: totals carry their line ('Over 2.5'), 1X2 carries its code ('Home (1)')."""
+    line=re.search(r'_(-?\d+(?:\.\d+)?)$',str(market_key))
+    name=outcome_name(outcome_key)
+    if line and str(outcome_key).upper() in ('OVER','UNDER'):return f'{name} {line.group(1)}'
+    if compact(market_key)=='1X2':return {'HOME':'Home (1)','DRAW':'Draw (X)','AWAY':'Away (2)'}.get(str(outcome_key).upper(),name)
+    return name
+
+
+MARKET_ORDER=('1X2','DC','OU','HOME_OU','AWAY_OU','BTTS','ODD_EVEN','AH','CS')
+OUTCOME_ORDER={k:i for i,k in enumerate(('HOME','DRAW','AWAY','1X','X2','12','OVER','UNDER','YES','NO','ODD','EVEN'))}
+
+
+def market_sort_key(market_key,outcome_key):
+    base=re.sub(r'_-?\d+(?:\.\d+)?$','',str(market_key))
+    line=re.search(r'_(-?\d+(?:\.\d+)?)$',str(market_key))
+    return (MARKET_ORDER.index(base) if base in MARKET_ORDER else 99,float(line.group(1)) if line else 0,OUTCOME_ORDER.get(str(outcome_key).upper(),50),str(outcome_key))
 
 
 def latest_quotes(db,fixture_id,cutoff):

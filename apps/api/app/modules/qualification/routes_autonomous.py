@@ -13,12 +13,17 @@ def get_summary():
 
 
 @router.get('/decision-details')
-def get_decisions(status:str=Query(default='ALL',pattern='^(ALL|QUALIFIED|REJECTED)$'),search:str=Query(default='',max_length=100),sport:str|None=Query(default=None,max_length=60),
+def get_decisions(status:str=Query(default='ALL',pattern='^(ALL|QUALIFIED|REJECTED|PENDING)$'),search:str=Query(default='',max_length=100),sport:str|None=Query(default=None,max_length=60),
                   country:str|None=Query(default=None,max_length=60),competition:str|None=Query(default=None,max_length=40),category:str|None=Query(default=None,max_length=40),
                   limit:int=Query(default=10,ge=1,le=200),offset:int=Query(default=0,ge=0)):
  with SessionLocal() as db:
-  rows=aq._rows(db,status,search,sport,country,competition,category)
-  return {'total':len(rows),'limit':limit,'offset':offset,'items':[aq.decision_dict(db,*r) for r in rows[offset:offset+limit]]}
+  # Decisions first (newest), then forecasts still awaiting a price (by kickoff). PENDING rows are never decisions.
+  decided=[] if status=='PENDING' else aq._rows(db,status,search,sport,country,competition,category)
+  pending=aq.pending_rows(db,aq._now(),search,sport,country,competition,category) if status in ('ALL','PENDING') else []
+  total=len(decided)+len(pending)
+  page=[aq.decision_dict(db,*r) for r in decided[offset:offset+limit]]
+  if len(page)<limit:page+=pending[max(0,offset-len(decided)):max(0,offset-len(decided))+limit-len(page)]
+  return {'total':total,'decided':len(decided),'pending':len(pending),'limit':limit,'offset':offset,'items':page}
 
 
 @router.get('/rejections')

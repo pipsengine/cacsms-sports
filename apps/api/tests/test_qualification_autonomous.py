@@ -84,9 +84,11 @@ def test_read_models(store):
         assert b['rejected']==3 and {c['key']:c['count'] for c in b['categories']}['negative_ev']==2 and {c['key']:c['count'] for c in b['categories']}['risk']==1
         rows=aq._rows(db,'QUALIFIED')
         item=aq.decision_dict(db,*rows[0])
-        assert item['selection']=='Home' and item['edge']==round(82.4-100/1.27,2) and item['confidence']=='High'
+        assert item['selection']=='Home (1)' and item['edge']==round(82.4-100/1.27,2) and item['confidence']=='High'
         comp=aq.comparison(db,at=now)
         assert comp[0]['status']=='PRICED' and any(r['status']=='AWAITING_PRICE' and r['selection']=='Yes' for r in comp)
+        from app.modules.market_scanner.service import selection_name,market_name
+        assert selection_name('OU_2.5','OVER')=='Over 2.5' and market_name('AWAY_OU_0.5')=='Away Over/Under 0.5'
         assert aq.history(db,at=now)[0]['qualified']==1
 
 
@@ -100,3 +102,24 @@ def test_endpoints(store,monkeypatch):
     assert client.get('/api/v1/sports/qualification/summary').json()['evaluated']==4
     assert client.get('/api/v1/sports/qualification/filters').json()['countries']==['Germany']
     for path in ('rejections','gates','history','comparison'):assert client.get('/api/v1/sports/qualification/'+path).status_code==200
+
+
+def test_pending_forecasts_are_rows_not_decisions_and_feed_price_independent_gates(store,monkeypatch):
+    factory,now=store;monkeypatch.setattr(routes_autonomous,'SessionLocal',factory)
+    aq.cycle(factory,at=now)
+    app=FastAPI();app.include_router(routes_autonomous.router);client=TestClient(app)
+    pending=client.get('/api/v1/sports/qualification/decision-details?status=PENDING').json()
+    assert pending['total']==1 and pending['items'][0]['decision']=='PENDING' and pending['items'][0]['selection']=='Yes'
+    assert pending['items'][0]['odds'] is None and pending['items'][0]['edge'] is None and pending['items'][0]['confidence']=='High'
+    everything=client.get('/api/v1/sports/qualification/decision-details?status=ALL&limit=3&offset=3').json()
+    assert everything['total']==5 and [i['decision'] for i in everything['items']][-1]=='PENDING', 'decisions first, then pending'
+    assert client.get('/api/v1/sports/qualification/decision-details?status=PENDING&search=btts').json()['total']==1
+    assert client.get('/api/v1/sports/qualification/decision-details?status=PENDING&search=corners').json()['total']==0
+    with factory() as db:
+        s=aq.summary(db,now)
+        assert s['evaluated']==4 and s['pending']==1, 'pending never counted as evaluated'
+        gates={g['key']:g for g in s['gates']}
+        assert (gates['research']['evaluated'],gates['research']['pass_rate'])==(5,100.0)
+        assert gates['odds_freshness']['evaluated']==5 and gates['odds_freshness']['pass_rate']==80.0
+        assert gates['value']['evaluated']==4, 'price-dependent gates use decisions only'
+        assert s['trend']['evaluated'] is None, 'no prior window -> no fabricated trend'
