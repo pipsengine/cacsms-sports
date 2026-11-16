@@ -123,3 +123,24 @@ def test_pending_forecasts_are_rows_not_decisions_and_feed_price_independent_gat
         assert gates['odds_freshness']['evaluated']==5 and gates['odds_freshness']['pass_rate']==80.0
         assert gates['value']['evaluated']==4, 'price-dependent gates use decisions only'
         assert s['trend']['evaluated'] is None, 'no prior window -> no fabricated trend'
+
+
+def test_opportunities_and_evidence(store,monkeypatch):
+    factory,now=store;monkeypatch.setattr(routes_autonomous,'SessionLocal',factory)
+    aq.cycle(factory,at=now)
+    app=FastAPI();app.include_router(routes_autonomous.router);client=TestClient(app)
+    q=client.get('/api/v1/sports/qualification/opportunities').json()
+    assert q['total']==1 and q['items'][0]['decision']=='QUALIFIED' and q['items'][0]['selection']=='Home (1)'
+    assert client.get('/api/v1/sports/qualification/opportunities?min_probability=90').json()['total']==0, 'policy filter'
+    assert client.get('/api/v1/sports/qualification/opportunities?min_ev=50').json()['total']==0
+    everything=client.get('/api/v1/sports/qualification/opportunities?only_qualified=false&limit=50').json()
+    assert everything['total']==5 and {i['decision'] for i in everything['items']}=={'QUALIFIED','REJECTED','PENDING'}
+    ev=client.get(f"/api/v1/sports/qualification/opportunities/{q['items'][0]['id']}/evidence").json()
+    assert ev['rationale']['status']=='QUALIFIED' and ev['rationale']['text'].startswith('Passes all quality gates')
+    assert ev['model']['name']=='Market model 1' and ev['research']['evidence_items']==1
+    pending=next(i for i in everything['items'] if i['decision']=='PENDING')
+    pe=client.get(f"/api/v1/sports/qualification/opportunities/{pending['id']}/evidence").json()
+    assert pe['rationale']['status']=='PENDING' and 'cannot qualify yet' in pe['rationale']['text']
+    rejected=next(i for i in everything['items'] if i['decision']=='REJECTED')
+    assert client.get(f"/api/v1/sports/qualification/opportunities/{rejected['id']}/evidence").json()['rationale']['text'].startswith('Failed:')
+    assert client.get('/api/v1/sports/qualification/opportunities/missing/evidence').status_code==404

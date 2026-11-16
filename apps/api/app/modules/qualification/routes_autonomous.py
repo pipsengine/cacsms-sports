@@ -54,3 +54,23 @@ def get_filters():
   from app.modules.markets.catalogue_data import CATEGORIES
   return {'sports':sorted({s for *_,s in comps}),'countries':sorted({c for _,_,c,_ in comps if c}),'competitions':[{'id':i,'name':n,'country':c} for i,n,c,_ in comps],
           'categories':[{'key':k,'name':n} for k,n in CATEGORIES]}
+
+
+@router.get('/opportunities')
+def get_opportunities(only_qualified:bool=True,min_probability:float|None=Query(default=None,ge=0,le=100),min_ev:float|None=Query(default=None,ge=-100,le=1000),
+                      search:str=Query(default='',max_length=100),sport:str|None=Query(default=None,max_length=60),country:str|None=Query(default=None,max_length=60),
+                      competition:str|None=Query(default=None,max_length=40),category:str|None=Query(default=None,max_length=40),
+                      limit:int=Query(default=5,ge=1,le=200),offset:int=Query(default=0,ge=0)):
+ from app.modules.qualification.opportunities import opportunities
+ with SessionLocal() as db:
+  rows=opportunities(db,only_qualified,min_probability,min_ev,search,sport,country,competition,category)
+  return {'total':len(rows),'limit':limit,'offset':offset,'items':rows[offset:offset+limit]}
+
+
+@router.get('/opportunities/{opportunity_id}/evidence')
+def get_opportunity_evidence(opportunity_id:str):
+ from fastapi import HTTPException
+ from app.modules.qualification.opportunities import evidence
+ with SessionLocal() as db:
+  try:return evidence(db,opportunity_id)
+  except LookupError as exc:raise HTTPException(404,str(exc)) from exc

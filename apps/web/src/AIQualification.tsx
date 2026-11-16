@@ -40,9 +40,6 @@ export default function AIQualification(){
  const params=new URLSearchParams({status,limit:String(size),offset:String(page*size),...query?{search:query}:{},...sport?{sport}:{},...country?{country}:{},...competition?{competition}:{},...category?{category}:{}});
  const list=useResearchRemote<{total:number;items:Decision[]}>(API+'decision-details?'+params,revision);
  const rej=useResearchRemote<Breakdown>(API+'rejections',revision);
- const comp=useResearchRemote<Comparison[]>(tab==='Market Comparison'?API+'comparison':null,revision);
- const hist=useResearchRemote<{date:string;qualified:number;rejected:number}[]>(tab==='Qualification History'?API+'history':null,revision);
- const inspect=useResearchRemote<{total:number;items:Decision[]}>(tab==='Quality Gate Inspector'?API+'decision-details?status=ALL&limit=50':null,revision);
  const refreshRef=useRef(refresh);refreshRef.current=refresh;
  useEffect(()=>{const t=setInterval(()=>refreshRef.current(),60000);return()=>clearInterval(t)},[]);
  useEffect(()=>{const t=setTimeout(()=>{setQuery(search);setPage(0)},300);return()=>clearTimeout(t)},[search]);
@@ -93,7 +90,18 @@ export default function AIQualification(){
     <section className="dmr-card"><div className="dmr-card-head"><h3><XCircle className="bad"/>Rejection Breakdown ({n(rej.data?.rejected)})</h3></div>
      {(rej.data?.categories||[]).map(c=><div className="mi-row" key={c.key}><span>{c.name}</span><b>{n(c.count)} <small>({pct(c.share)})</small></b></div>)}</section></aside>
   </div>
-  :tab==='Market Comparison'?<section className="dmr-card"><div className="dmr-card-head"><h3><Scale/>Market comparison</h3></div><p className="dmr-caption">Model probability and fair odds against the best stored price for every forecast of an upcoming fixture.</p>
+  :<QualificationSecondaryTab tab={tab} revision={revision}/>}
+  {s&&<p className="dmr-note">{s.notice}</p>}
+ </div>;
+}
+
+/** Market comparison, gate inspector, rejection intelligence and history views (shared with Qualified Opportunities). */
+export function QualificationSecondaryTab({tab,revision,historyTitle='Qualification history'}:{tab:string;revision:number;historyTitle?:string}){
+ const comp=useResearchRemote<Comparison[]>(tab==='Market Comparison'?API+'comparison':null,revision);
+ const hist=useResearchRemote<{date:string;qualified:number;rejected:number}[]>(tab.endsWith('History')?API+'history':null,revision);
+ const inspect=useResearchRemote<{total:number;items:Decision[]}>(tab==='Quality Gate Inspector'?API+'decision-details?status=ALL&limit=50':null,revision);
+ const rej=useResearchRemote<Breakdown>(tab==='Rejection Intelligence'?API+'rejections':null,revision);
+  return tab==='Market Comparison'?<section className="dmr-card"><div className="dmr-card-head"><h3><Scale/>Market comparison</h3></div><p className="dmr-caption">Model probability and fair odds against the best stored price for every forecast of an upcoming fixture.</p>
    {comp.data?.length?<div className="mi-table"><table><thead><tr><th>Fixture</th><th>Market</th><th>Selection</th><th>AI Prob.</th><th>Fair odds</th><th>Best odds</th><th>Bookmaker</th><th>Imp. Prob.</th><th>Edge</th><th>Price status</th></tr></thead>
     <tbody>{comp.data.map((r,i)=><tr key={i}><td><b>{r.fixture}</b><small>{fmt(r.kickoff_at)}</small></td><td>{r.market}</td><td>{r.selection}</td><td>{pct(r.probability)}</td><td>{r.fair_odds?.toFixed(2)??'—'}</td><td>{r.best_odds?.toFixed(2)??'—'}</td><td>{r.bookmaker||'—'}</td><td>{pct(r.implied_probability)}</td><td className={(r.edge||0)>0?'good':''}>{signed(r.edge)}</td><td><DecisionChip value={r.status==='PRICED'?'priced':'awaiting price'}/></td></tr>)}</tbody></table></div>:<Empty>{comp.loading?'Loading…':'No forecasts for upcoming fixtures.'}</Empty>}</section>
   :tab==='Quality Gate Inspector'?<section className="dmr-card"><div className="dmr-card-head"><h3><ShieldCheck/>Quality gate inspector</h3></div>
@@ -101,8 +109,6 @@ export default function AIQualification(){
     <tbody>{inspect.data.items.map(d=><tr key={d.id}><td><b>{d.fixture}</b><small>{d.market} · {d.bookmaker}</small></td><td>{d.selection}</td>{Object.keys(GATE_LABEL).map(g=><td key={g}>{d.gates[g]==='PASS'?<CheckCircle2 className="good" size={16} aria-label="pass"/>:d.gates[g]==='FAIL'?<XCircle className="bad" size={16} aria-label="fail"/>:<span className="muted" title="Needs a price">—</span>}</td>)}<td><DecisionChip value={d.decision}/></td></tr>)}</tbody></table></div>:<Empty>{inspect.loading?'Loading…':'No decisions recorded yet.'}</Empty>}</section>
   :tab==='Rejection Intelligence'?<div className="aq-two"><section className="dmr-card"><div className="dmr-card-head"><h3><XCircle className="bad"/>Rejection categories</h3></div>{(rej.data?.categories||[]).map(c=><div className="aq-gate" key={c.key}><span>{c.name}</span><b>{n(c.count)}</b><i><em className="bad-bar" style={{width:(c.share||0)+'%'}}/></i></div>)}</section>
    <section className="dmr-card"><div className="dmr-card-head"><h3><BarChart3/>Reason codes</h3></div>{rej.data&&Object.keys(rej.data.reason_codes).length?Object.entries(rej.data.reason_codes).map(([k,v])=><div className="mi-row" key={k}><span>{k.replaceAll('_',' ').toLowerCase()}</span><b>{n(v)}</b></div>):<Empty>No rejections recorded.</Empty>}</section></div>
-  :<section className="dmr-card"><div className="dmr-card-head"><h3><History/>Qualification history (30 days)</h3></div>{hist.data?.length?<div className="mi-table"><table><thead><tr><th>Date</th><th>Qualified</th><th>Rejected</th><th>Rate</th></tr></thead>
-   <tbody>{hist.data.map(h=><tr key={h.date}><td>{h.date}</td><td className="good">{n(h.qualified)}</td><td className="bad">{n(h.rejected)}</td><td>{pct(h.qualified+h.rejected?h.qualified*100/(h.qualified+h.rejected):null)}</td></tr>)}</tbody></table></div>:<Empty>{hist.loading?'Loading…':'No decisions in the last 30 days.'}</Empty>}</section>}
-  {s&&<p className="dmr-note">{s.notice}</p>}
- </div>;
+  :<section className="dmr-card"><div className="dmr-card-head"><h3><History/>{historyTitle} (30 days)</h3></div>{hist.data?.length?<div className="mi-table"><table><thead><tr><th>Date</th><th>Qualified</th><th>Rejected</th><th>Rate</th></tr></thead>
+   <tbody>{hist.data.map(h=><tr key={h.date}><td>{h.date}</td><td className="good">{n(h.qualified)}</td><td className="bad">{n(h.rejected)}</td><td>{pct(h.qualified+h.rejected?h.qualified*100/(h.qualified+h.rejected):null)}</td></tr>)}</tbody></table></div>:<Empty>{hist.loading?'Loading…':'No decisions in the last 30 days.'}</Empty>}</section>;
 }

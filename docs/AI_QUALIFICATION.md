@@ -21,3 +21,16 @@ because no source-backed prices exist yet for upcoming fixtures (Football-Data p
 also be stale against the 15-minute freshness gate, so they are expected to be recorded as rejections, not qualifications).
 
 Tests: `apps/api/tests/test_qualification_autonomous.py`.
+
+## Qualified Opportunities (cacsms-qualified module, integrated)
+
+Source: `CACSMS_Qualified_Opportunities_Module` (standalone FastAPI + Docker app with its own `market_observations`,
+`model_forecasts` and `qualification_decisions` tables and scheduler). Integrated without a second database or scheduler:
+opportunities **are** `qualification.decisions` rows with decision QUALIFIED. The module's policy thresholds (minimum
+probability, minimum EV) became the page's **Confidence ≥** and **Min. EV ≥** filters on top of the qualification gates.
+
+API: `GET /api/v1/sports/qualification/opportunities?only_qualified=&min_probability=&min_ev=&...` and
+`GET /api/v1/sports/qualification/opportunities/{id}/evidence` (decision or `pending:<prediction_id>`): fixture, research
+sections and sources, model validation (holdout Brier vs base rate, calibration error, skill), 95% range, all gates and a
+rationale generated from those stored facts. Page: `/sports/opportunities`; market comparison, gate inspector, rejection
+intelligence and history are shared with AI Qualification (`QualificationSecondaryTab`).
