@@ -86,6 +86,10 @@ def ticket_detail(id:str):
   return {c.name:getattr(o,c.name) for c in o.__table__.columns}
 @app.get(PREFIX+'/booking-codes/{id}')
 def code_detail(id:str):
+ # This generic route is registered before the tickets router, so it would otherwise shadow /booking-codes/readiness.
+ if id=='readiness':
+  from app.modules.tickets.routes import booking_readiness
+  return booking_readiness()
  with SessionLocal() as s:
   o=s.get(m.BookingCode,id)
   if o is None:raise HTTPException(404,'Code not found')
@@ -168,65 +172,9 @@ def fixture_ingest(item:FixtureIntake,x_admin_token:str|None=Header(default=None
 
 @app.get(PREFIX+'/workflow/stages')
 def workflow_stages():
- names=['Mission Planning','Fixture Discovery','Source Acquisition','Deep Match Research','Data Validation','Statistical Analysis','AI Prediction','Probability Validation','Market Intelligence','Opportunity Qualification','Strategy Allocation','Ticket Optimization','Betslip Preparation','Booking-Code Verification','Continuous Monitoring','Result Reconciliation','Model Evaluation & Learning']
- return [{'stage':i+1,'name':name,'state':'NOT_VERIFIED','mode':'PAPER'} for i,name in enumerate(names)]
-
-@app.post(PREFIX+'/qualification/evaluate')
-def qualification_preview(gates:dict):
- # Stateless preview; does not create a qualified opportunity or ticket.
- return evaluate(gates)
-
-
-# Restricted source onboarding and provenance-based fixture ingestion.
-# These endpoints are disabled unless a deployment administrator configures a secret.
-import os,secrets
-from fastapi import Header
-from pydantic import BaseModel,Field
-from app.modules.ingestion.service import ingest_fixture
-from app.modules.qualification.service import evaluate
-class SourceOnboard(BaseModel):
- name:str=Field(min_length=2,max_length=120)
- permission:str
- enabled:bool=False
-class FixtureIntake(BaseModel):
- source_name:str
- sport_name:str
- competition_name:str
- home:str
- away:str
- kickoff_at:datetime
- source_url:str
- evidence:dict
-
-def admin_guard(x_admin_token:str|None):
- expected=os.getenv('SPORTS_ADMIN_TOKEN','')
- if not expected or not x_admin_token or not secrets.compare_digest(expected,x_admin_token):
-  raise HTTPException(403,'Administrative access disabled or invalid')
-
-@app.post(PREFIX+'/admin/sources',status_code=201)
-def onboard_source(item:SourceOnboard,x_admin_token:str|None=Header(default=None)):
- admin_guard(x_admin_token)
- if item.permission not in ('AUTHORIZED','UNVERIFIED','RESTRICTED'):
-  raise HTTPException(422,'Invalid permission')
- if item.enabled and item.permission!='AUTHORIZED':raise HTTPException(422,'Only authorized sources may be enabled')
- with SessionLocal.begin() as s:
-  source=s.scalar(select(m.Source).where(m.Source.name==item.name))
-  if source is None:source=m.Source(name=item.name);s.add(source)
-  source.permission=item.permission;source.enabled=item.enabled
-  s.flush();return {'id':source.id,'name':source.name,'permission':source.permission,'enabled':source.enabled}
-
-@app.post(PREFIX+'/admin/fixtures/ingest',status_code=201)
-def fixture_ingest(item:FixtureIntake,x_admin_token:str|None=Header(default=None)):
- admin_guard(x_admin_token)
- try:
-  with SessionLocal.begin() as s:
-   return ingest_fixture(s,item.source_name,item.sport_name,item.competition_name,item.home,item.away,item.kickoff_at,item.source_url,item.evidence)
- except (ValueError,PermissionError) as e:raise HTTPException(422,str(e)) from e
-
-@app.get(PREFIX+'/workflow/stages')
-def workflow_stages():
- names=['Mission Planning','Fixture Discovery','Source Acquisition','Deep Match Research','Data Validation','Statistical Analysis','AI Prediction','Probability Validation','Market Intelligence','Opportunity Qualification','Strategy Allocation','Ticket Optimization','Betslip Preparation','Booking-Code Verification','Continuous Monitoring','Result Reconciliation','Model Evaluation & Learning']
- return [{'stage':i+1,'name':name,'state':'NOT_VERIFIED','mode':'PAPER'} for i,name in enumerate(names)]
+ # The canonical 12-stage engine definition; per-run state lives in /pipeline (no state is asserted here).
+ from app.modules.pipeline.logic import STAGES,INDEPENDENT
+ return [{'stage':i+1,'key':key,'name':name,'output':output,'independent':key in INDEPENDENT,'mode':'PAPER'} for i,(key,name,output) in enumerate(STAGES)]
 
 @app.post(PREFIX+'/qualification/evaluate')
 def qualification_preview(gates:dict):
