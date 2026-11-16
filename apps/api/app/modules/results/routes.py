@@ -1,6 +1,6 @@
 """Read-only settlement views plus administrator-controlled verified result intake."""
 from datetime import datetime,timezone
-from fastapi import APIRouter,HTTPException,Header
+from fastapi import APIRouter,HTTPException,Header,Query
 from pydantic import BaseModel,Field
 from sqlalchemy import select,func,text
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,24 @@ from app.db import models as m
 from app.modules.results.service import validate_result_payload,settle_outcome,performance_summary,ResultValidationError
 
 router=APIRouter(prefix='/api/v1/sports',tags=['Results & Learning'])
+
+@router.get('/performance/workspace')
+def performance_workspace(days:int=Query(30,ge=1,le=365)):
+ from sqlalchemy.exc import SQLAlchemyError
+ from app.modules.results.performance import analytics
+ try:
+  with SessionLocal() as db:return analytics(db,days)
+ except SQLAlchemyError as exc:
+  raise HTTPException(503,'Performance database unavailable') from exc
+
+@router.get('/results/workspace')
+def results_workspace():
+ from sqlalchemy.exc import SQLAlchemyError
+ from app.modules.results.workspace import workspace
+ try:
+  with SessionLocal() as db:return workspace(db)
+ except SQLAlchemyError as exc:
+  raise HTTPException(503,'Results database unavailable') from exc
 
 class OfficialResultIn(BaseModel):
  fixture_id:str
@@ -69,7 +87,8 @@ def verified_results(limit:int=50):
 def latest_settlements(limit:int=100):
  with SessionLocal() as db:
   # Corrected results supersede earlier versions without erasing the original settlement history.
-  rows=db.execute(select(m.Settlement,m.Prediction,m.Result).join(m.Prediction,m.Settlement.prediction_id==m.Prediction.id).join(m.Result,m.Settlement.result_id==m.Result.id).order_by(m.Result.verified_at.desc()).limit(2000)).all()
+  from app.modules.results.workspace import latest_settlement_rows
+  rows=latest_settlement_rows(db)
   latest={}
   for s,p,r in rows:
    if p.id not in latest or r.version>latest[p.id][2].version:latest[p.id]=(s,p,r)
@@ -78,7 +97,8 @@ def latest_settlements(limit:int=100):
 @router.get('/performance/forecast-quality')
 def forecast_quality():
  with SessionLocal() as db:
-  rows=db.execute(select(m.Settlement,m.Prediction,m.Result).join(m.Prediction,m.Settlement.prediction_id==m.Prediction.id).join(m.Result,m.Settlement.result_id==m.Result.id)).all()
+  from app.modules.results.workspace import latest_settlement_rows
+  rows=latest_settlement_rows(db)
   latest={}
   for s,p,r in rows:
    if p.id not in latest or r.version>latest[p.id][2].version:latest[p.id]=(s,p,r)

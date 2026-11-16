@@ -1,12 +1,14 @@
 from datetime import datetime,timezone
 from fastapi import FastAPI,HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from app.modules.diagnostics import router as diagnostics_router
 from sqlalchemy import select,func,text
 from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import EXECUTION_MODE
 from app.db.base import SessionLocal
 from app.db import models as m
 app=FastAPI(title='CACSMS Sport AI 2.0',version='2.0.0',description='PAPER-only evidence-first sports intelligence API')
+app.include_router(diagnostics_router)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=False,allow_methods=['GET'],allow_headers=['*'])
 PREFIX='/api/v1/sports'
 TABLES={'fixtures':m.Fixture,'features':m.Feature,'research':m.Research,'predictions':m.Prediction,'markets/odds':m.Odds,'qualification/decisions':m.Qualification,'opportunities':m.Qualification,'tickets':m.Ticket,'betslips':m.Betslip,'booking-codes':m.BookingCode,'results':m.Result,'settlements':m.Settlement,'models':m.ModelVersion,'sources':m.Source,'browser/sessions':None,'missions':m.Mission,'incidents':m.Incident,'audit/events':m.AuditEvent,'statistics':None,'operations/live':m.StageRecord}

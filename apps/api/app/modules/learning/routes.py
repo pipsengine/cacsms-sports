@@ -7,7 +7,8 @@ from engines.learning.monitor import score_window,compare_windows
 router=APIRouter(prefix='/api/v1/sports',tags=['Model monitoring'])
 
 def model_rows(db,model_id):
-    rows=db.execute(select(m.Prediction,m.Settlement,m.Result).join(m.Settlement,m.Settlement.prediction_id==m.Prediction.id).join(m.Result,m.Result.id==m.Settlement.result_id).where(m.Prediction.model_id==model_id)).all()
+    from app.modules.results.workspace import latest_settlement_rows
+    rows=[(p,s,r) for s,p,r in latest_settlement_rows(db) if p.model_id==model_id]
     latest={}
     for pred,settlement,result in rows:
         if pred.id not in latest or result.version>latest[pred.id][2].version:

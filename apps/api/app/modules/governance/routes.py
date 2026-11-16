@@ -1,8 +1,17 @@
-from fastapi import APIRouter,Header,HTTPException
+from fastapi import APIRouter,Header,HTTPException,Query
 from sqlalchemy import select
 from app.db.base import SessionLocal
 from app.db import models as m
 router=APIRouter(prefix='/api/v1/sports',tags=['Model governance'])
+
+@router.get('/models/workspace')
+def models_workspace(days:int=Query(30,ge=1,le=365)):
+ from sqlalchemy.exc import SQLAlchemyError
+ from app.modules.governance.workspace import workspace
+ try:
+  with SessionLocal() as db:return workspace(db,days)
+ except SQLAlchemyError as exc:
+  raise HTTPException(503,'Model registry database unavailable') from exc
 
 
 @router.post('/models/{model_id}/promote')
