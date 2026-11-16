@@ -21,7 +21,7 @@ def make_router(key,session,tag):
  @router.get('/candidates')
  def get_candidates():
   with session() as db:
-   rows,excluded=pe.eligible(db,datetime.now(timezone.utc))
+   rows,excluded=pe.programme_rows(key,*pe.eligible(db,datetime.now(timezone.utc)))
    return {'items':rows,'excluded':excluded,'policy':pe.policy(key),
            'reachable_odds':pe.reachable_odds(rows,key) if key in pe.MIN_COMBINED_ODDS else None}
 

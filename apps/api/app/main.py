@@ -522,6 +522,9 @@ app.include_router(singles_router)
 # Jackpot Engine (shared programme engine, runs inside the autonomy cycle)
 from app.modules.strategies.jackpot_routes import router as jackpot_router
 app.include_router(jackpot_router)
+# Weekly Draw Centre (shared programme engine, weekly run inside the autonomy cycle)
+from app.modules.strategies.draws_routes import router as draws_router
+app.include_router(draws_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

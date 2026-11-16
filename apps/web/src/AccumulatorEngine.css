@@ -14,3 +14,6 @@
 .ae .warn-ic{color:#e38b00}
 @media(max-width:1400px){.ae-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:800px){.ae-grid{grid-template-columns:1fr}.ae-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.ae .ae-more{color:var(--muted,#64748b);font-weight:500;margin-left:4px}
+.ae .ae-ticket{font-weight:700;margin:6px 0 2px}
