@@ -516,6 +516,9 @@ app.include_router(qualification_router)
 # Autonomous paper Accumulator Engine (runs inside the autonomy cycle)
 from app.modules.strategies.accumulator_routes import router as accumulator_router
 app.include_router(accumulator_router)
+# Automatic Singles (shared programme engine, runs inside the autonomy cycle)
+from app.modules.strategies.singles_routes import router as singles_router
+app.include_router(singles_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

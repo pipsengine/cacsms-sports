@@ -422,6 +422,7 @@ def collect(factory,at=None):
                         ('market-archive',timedelta(minutes=2),lambda:__import__('app.modules.markets.history_import',fromlist=['collect']).collect(factory,at=at)),
                         ('qualification',timedelta(minutes=2),lambda:__import__('app.modules.qualification.autonomous',fromlist=['cycle']).cycle(factory,at=at)),
                         ('accumulator',timedelta(minutes=5),lambda:__import__('app.modules.strategies.accumulator',fromlist=['cycle']).cycle(factory,at=at)),
+                        ('singles',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'singles',at=at)),
                         ('market-benchmark',timedelta(minutes=30),lambda:__import__('app.modules.markets.intelligence',fromlist=['refresh_benchmark']).refresh_benchmark(factory,at=at))):
   if not due(factory,'open-intel:schedule:'+name,every,at):continue
   try:
