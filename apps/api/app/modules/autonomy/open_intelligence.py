@@ -418,7 +418,9 @@ def collect(factory,at=None):
  for name,every,job in (('history',timedelta(minutes=5),lambda:refresh_history(factory,at=at)),
                         ('results',timedelta(minutes=1),lambda:corroborate_results(factory,at=at)),
                         ('evidence',EVIDENCE_REFRESH,lambda:produce_evidence(factory,at=at)),
-                        ('odds',ODDS_REFRESH,lambda:collect_odds(factory,at=at))):
+                        ('odds',ODDS_REFRESH,lambda:collect_odds(factory,at=at)),
+                        ('market-archive',timedelta(minutes=2),lambda:__import__('app.modules.markets.history_import',fromlist=['collect']).collect(factory,at=at)),
+                        ('market-benchmark',timedelta(minutes=30),lambda:__import__('app.modules.markets.intelligence',fromlist=['refresh_benchmark']).refresh_benchmark(factory,at=at))):
   if not due(factory,'open-intel:schedule:'+name,every,at):continue
   try:
    report[name]=job()

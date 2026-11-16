@@ -507,6 +507,9 @@ app.include_router(market_scanner_router)
 # Market catalogue, per-fixture availability and AI market scans (scans run in the Evaluate stage)
 from app.modules.markets.catalogue_routes import router as market_catalogue_router
 app.include_router(market_catalogue_router)
+# Market Intelligence: closing-odds archive, coverage, sources and sync history on canonical records
+from app.modules.markets.intelligence_routes import router as market_intelligence_router
+app.include_router(market_intelligence_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):
