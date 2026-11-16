@@ -497,6 +497,9 @@ app.include_router(deep_workspace_router)
 # Version 3.6: read-only, evidence-backed Match Analysis workspace
 from app.modules.match_analysis.routes import router as match_analysis_router
 app.include_router(match_analysis_router)
+# Market catalogue + paper-only prediction evaluation (canonical odds/forecasts; no scraping)
+from app.modules.market_scanner.routes import router as market_scanner_router
+app.include_router(market_scanner_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):
