@@ -67,7 +67,7 @@ def build_workspace(db,fixture_id,as_of=None):
     run=db.scalar(select(m.PipelineRun).where(m.PipelineRun.fixture_id==fixture.id).order_by(m.PipelineRun.updated_at.desc()).limit(1))
     stages={s.stage_key:s.status for s in db.scalars(select(m.PipelineStage).where(m.PipelineStage.run_id==run.id))} if run else {}
     authorized_sources={o.source_id for o in observations if (p:=providers.get(o.source_id)) and p.enabled and p.permission=='AUTHORIZED'}
-    return dict(fixture=dict(id=fixture.id,home=fixture.home_name,away=fixture.away_name,kickoff_at=fixture.kickoff_at,status=fixture.status,
+    return dict(fixture=dict(id=fixture.id,home=fixture.home_name,away=fixture.away_name,kickoff_at=fixture.kickoff_at,status=fixture.status,matchday=fixture.matchday,
                              competition_id=comp.id,competition=comp.name,sport=sport.name,country=comp.country,season_id=fixture.season_id,season=season.label if season else None),
         cutoff=cutoff,dossier_id=dossier.id if dossier else None,version=dossier.version if dossier else None,
         status='VERIFIED' if count==len(SECTIONS) else 'INCOMPLETE',last_research_at=dossier.created_at if dossier else None,

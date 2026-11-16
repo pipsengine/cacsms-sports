@@ -45,8 +45,8 @@ def normalize(matches,at):
   ident=match['matchID']
   if type(ident) is not int or ident<=0:raise ValueError('Invalid provider match ID')
   # A stable league label avoids embedding changing season strings in competition identity.
-  rows.append(dict(home=home,away=away,kickoff=stamp.isoformat(),source_reference='OpenLigaDB:match:'+str(ident),url=BASE+'/getmatchdata/'+str(ident)))
-  group=match.get('group',{}).get('groupOrderID')
+  group=(match.get('group') or {}).get('groupOrderID')
+  rows.append(dict(home=home,away=away,kickoff=stamp.isoformat(),matchday=group if type(group) is int and group>0 else None,source_reference='OpenLigaDB:match:'+str(ident),url=BASE+'/getmatchdata/'+str(ident)))
   if type(group) is int:timings.append((stamp,group,match.get('matchIsFinished') is True))
  nearest=min(timings,key=lambda item:abs((item[0]-at).total_seconds())) if timings else None
  live=any(stamp-timedelta(minutes=15)<=at<=stamp+timedelta(hours=3) and not finished for stamp,_,finished in timings)
@@ -98,6 +98,7 @@ def collect(factory,fetcher=fetch,at=None):
      result=ingest_fixture(db,source.name,'Football','Bundesliga',item['home'],item['away'],datetime.fromisoformat(item['kickoff']),item['url'],
        {'source_reference':item['source_reference'],'licence':'ODbL 1.0','licence_url':LICENCE,'attribution':ATTRIBUTION,'verification':'COMMUNITY_SOURCE_NOT_INDEPENDENTLY_VERIFIED'})
      fixture=db.get(m.Fixture,result['fixture_id']);competition=db.get(m.Competition,fixture.competition_id);competition.country='Germany'
+     if item.get('matchday'):fixture.matchday=item['matchday']
      registered=db.scalar(select(m.CompetitionSeason).where(m.CompetitionSeason.competition_id==competition.id,m.CompetitionSeason.label==season_label))
      if registered is None:
       registered=m.CompetitionSeason(competition_id=competition.id,label=season_label,start_date=coverage_start,end_date=coverage_end,is_current=True);db.add(registered);db.flush()

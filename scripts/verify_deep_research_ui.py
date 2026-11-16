@@ -10,14 +10,14 @@ def main():
     with sync_playwright() as p:
         b=p.chromium.launch();page=b.new_page(viewport={'width':1672,'height':941});errors=[]
         page.on('pageerror',lambda e:errors.append(str(e)))
-        keys=['head_to_head','recent_form','injuries','lineups','match_statistics','team_news','standings']
+        keys=['head_to_head','recent_form','injuries','lineups','match_statistics','official_result','team_news','standings']
         stamp='2026-11-10T12:00:00Z'
-        names=['Head-to-Head','Team Form','Injuries & Availability','Probable Lineups','Match Statistics','Club News & Reports','League Standings']
+        names=['Head-to-Head','Team Form','Injuries & Availability','Probable Lineups','Match Statistics','Official Results','Club News & Reports','League Standings']
         def entry(name,rank):return dict(club=name,rank=rank,played=10,wins=7,draws=2,losses=1,goals_for=20,goals_against=9,goal_difference=11,points=23,form='WWDLW')
         def team(name,rank):return dict(name=name,standing=entry(name,rank),form='WWDLW',average_goals=2,clean_sheet_pct=40,sample_size=10)
         def workspace(ident):
-            return dict(fixture=dict(id=ident,home='Test Home' if ident=='f1' else 'Other Home',away='Test Away',kickoff_at='2026-11-20T16:00:00Z',status='SCHEDULED',competition_id='league',competition='Test League',country='Germany',sport='Football',season_id='season',season='2026/2027'),cutoff=stamp,dossier_id='dossier',version=1,status='VERIFIED',last_research_at=stamp,
-             sections=[dict(key=k,name=n,count=1,status='VERIFIED',details={}) for k,n in zip(keys,names)],evidence=[dict(id=k,section=k,observed_at=stamp,source_name='Test source',source_url='https://example.org/evidence',status='RECORDED_AUTHORIZED',data={'fact':k}) for k in keys],verified_sections=7,total_sections=7,sample_limit=500,
+            return dict(fixture=dict(id=ident,home='Test Home' if ident=='f1' else 'Other Home',away='Test Away',kickoff_at='2026-11-20T16:00:00Z',status='SCHEDULED',matchday=28,competition_id='league',competition='Test League',country='Germany',sport='Football',season_id='season',season='2026/2027'),cutoff=stamp,dossier_id='dossier',version=1,status='VERIFIED',last_research_at=stamp,
+             sections=[dict(key=k,name=n,count=1,status='VERIFIED',details={}) for k,n in zip(keys,names)],evidence=[dict(id=k,section=k,observed_at=stamp,source_name='Test source',source_url='https://example.org/evidence',status='RECORDED_AUTHORIZED',data={'fact':k}) for k in keys],verified_sections=8,total_sections=8,sample_limit=500,
              summary=dict(home=team('Test Home',1),away=team('Test Away',2),top_two=[entry('Test Home',1),entry('Test Away',2)],table_mode='source_snapshot',table_warning=None,head_to_head=[dict(id='meeting',kickoff_at=stamp,home='Test Home',away='Test Away',home_score=1,away_score=1)]),metrics=dict(research_runs=5,fixtures_researched=2,evidence_items=7),sources=dict(authorized=1,recorded=1,online=None),runtime=dict(status='OPERATING',worker_online=True,next_run_at=stamp,stages=dict(acquire='VERIFIED',research='VERIFIED',analyse='VERIFIED')),message='Test evidence context')
         def respond(route):
             url=route.request.url
@@ -29,7 +29,10 @@ def main():
         page.route('**/research/catalog/**',respond);page.route('**/research/workspace/**',respond)
         page.goto(BASE+'/sports/research');page.locator('.dmr-match').wait_for()
         assert page.locator('.dmr-tabs button').count()==8
-        assert page.locator('.dmr-right .dmr-coverage').count()==7
+        assert page.locator('.dmr-right .dmr-coverage').count()==8
+        assert page.get_by_text('Official Results').count()>=1
+        page.locator('.dmr-kickoff b',has_text='Test League — Matchday 28').wait_for()
+        for label in ['Data Freshness','Next Scheduled Run','Last Research Run','Sources (Authorized)']:assert page.get_by_text(label,exact=True).count()==1,label
         assert page.locator('.sidebar .nav-link').count()==29
         assert page.locator('.dmr-filters button').count()==0
         for tab in ['H2H','Form','Injuries','Lineups','Statistics','Club News','Evidence','Overview']:

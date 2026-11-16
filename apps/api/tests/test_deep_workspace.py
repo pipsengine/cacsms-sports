@@ -82,3 +82,17 @@ def test_endpoint_validation_and_read_only(store,monkeypatch):
     assert client.get('/api/v1/sports/research/workspace/missing').status_code==404
     assert client.get('/api/v1/sports/research/workspace/fixture?as_of=2099-01-01T00:00:00Z').status_code==422
     assert client.post('/api/v1/sports/research/workspace/fixture').status_code==405
+
+
+def test_matchday_is_reported_only_when_recorded(store):
+    factory,at=store
+    with factory() as db:assert deep.build_workspace(db,'fixture')['fixture']['matchday'] is None
+    with factory.begin() as db:db.get(m.Fixture,'fixture').matchday=28
+    with factory() as db:assert deep.build_workspace(db,'fixture')['fixture']['matchday']==28
+
+
+def test_provider_round_maps_to_matchday():
+    from app.modules.autonomy.openligadb import normalize
+    match=lambda ident,group:{'matchID':ident,'matchDateTimeUTC':'2027-03-14T16:30:00Z','team1':{'teamName':'Home'},'team2':{'teamName':'Away'},'group':group}
+    rows,_,_=normalize([match(1,{'groupOrderID':28}),match(2,None),match(3,{'groupOrderID':'x'})],datetime(2027,3,1,tzinfo=timezone.utc))
+    assert [r['matchday'] for r in rows]==[28,None,None]

@@ -41,6 +41,7 @@ class Fixture(Base):
  away_team_id:Mapped[str|None]=mapped_column(ForeignKey('sports.teams.id'))
  kickoff_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),index=True)
  status:Mapped[str]=mapped_column(String(30),default='SCHEDULED')
+ matchday:Mapped[int|None]=mapped_column(Integer)
  competition:Mapped['Competition']=relationship()
 
  @property
