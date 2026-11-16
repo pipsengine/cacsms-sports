@@ -1,0 +1,39 @@
+/* Match Analysis additions on top of the shared Deep Match Research (.dmr) composition. */
+.dmr.ma .ma-filters{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,1.6fr) auto;align-items:end}
+.dmr.ma .ma-filters label{min-width:0;flex:none}
+.ma .ma-analyse{display:flex;align-items:center;gap:8px;padding:11px 20px;font-size:15px;font-weight:700;white-space:nowrap;box-shadow:0 4px 12px #075cf433}
+.ma .ma-analyse:disabled{opacity:.5;cursor:not-allowed}
+.ma .dmr-kickoff small{display:flex;align-items:center;gap:6px}
+.ma .dmr-card-head h3 small{font-weight:500;font-size:13px;color:#354d83}
+.ma-grid{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.ma-insights{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.ma-insights>div{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:12px 6px;border-radius:13px;border:1px solid #e4ebf7;background:#f4f8ff;min-width:0}
+.ma-insights svg{width:38px;height:38px;padding:7px;border-radius:12px}
+.ma-insights small{font-size:11px;color:#30487a}
+.ma-insights b{font-size:15px;color:#091a45;overflow-wrap:anywhere}
+.ma-insights>div:last-child b{font-size:11px}
+.ma-insights .green{background:#effcf3}.ma-insights .green svg{color:#0a9c3c;background:#dcf7e5}
+.ma-insights .blue{background:#eff5ff}.ma-insights .blue svg{color:#1b5ef0;background:#dfe9ff}
+.ma-insights .red{background:#fff2f2}.ma-insights .red svg{color:#e0262b;background:#ffe0e0}
+.ma-insights .purple{background:#f6f0ff}.ma-insights .purple svg{color:#8b2cf0;background:#ece0ff}
+.ma-metrics,.ma-compare{width:100%;border-collapse:collapse;font-size:12px}
+.ma-metrics th,.ma-compare th{text-align:left;font-size:11px;color:#1b2c58;padding:6px 6px;border-bottom:1px solid #e6edf8}
+.ma-metrics td,.ma-compare td{padding:7px 6px;border-bottom:1px solid #f0f4fa;color:#162a55}
+.ma-metrics td:nth-child(2),.ma-metrics td:nth-child(4){font-weight:600;white-space:nowrap}
+.ma-metrics td:nth-child(3){width:42%}
+.ma-compare td:not(:first-child),.ma-compare th:not(:first-child){text-align:center}
+.ma-compare td:not(:first-child){font-weight:600}
+.ma-compare+.ma-metrics,.ma-metrics+.ma-compare{margin-top:14px}
+.ma-bar{display:block;height:13px;border-radius:7px;background:linear-gradient(90deg,#b16cff,#7d5cf6);overflow:hidden}
+.ma-bar i{display:block;height:100%;background:linear-gradient(90deg,#1350f0,#2d6cff);border-radius:7px 0 0 7px}
+.ma .dmr-coverage-bar.partial i{background:#f2b33d}
+.ma-groups>div,.ma-meta>div{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #edf2f8;font-size:12px;color:#172957}
+.ma-groups b{display:flex;align-items:center;gap:4px;font-size:12px;color:#6a7f9f;white-space:nowrap}
+.ma-groups b.good{color:#0b9b45}
+.ma-meta b{font-size:12px;color:#0d1d48;text-align:right}
+.ma-meta .ma-fresh{background:#e5f8ec;color:#08843b;border-radius:8px;padding:3px 9px}
+.ma-form-teams{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.ma-form-teams>div{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #e4ebf7;border-radius:12px;background:#f7faff}
+.ma-form-teams small{color:#61779c;font-size:11px}
+@media(max-width:1280px){.ma-grid{grid-template-columns:1fr}.dmr.ma .ma-filters{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.ma-insights{grid-template-columns:repeat(2,minmax(0,1fr))}.dmr.ma .ma-filters{grid-template-columns:1fr}.ma .ma-analyse{justify-content:center}.ma-metrics td:nth-child(3){width:30%}.ma-form-teams{grid-template-columns:1fr}}

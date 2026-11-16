@@ -494,6 +494,9 @@ app.include_router(standings_router)
 
 from app.modules.research.deep_workspace_routes import router as deep_workspace_router
 app.include_router(deep_workspace_router)
+# Version 3.6: read-only, evidence-backed Match Analysis workspace
+from app.modules.match_analysis.routes import router as match_analysis_router
+app.include_router(match_analysis_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

@@ -62,6 +62,7 @@ def build_workspace(db,fixture_id,as_of=None):
         form=['W' if h>a else 'L' if h<a else 'D' for h,a in scores[:5]][::-1]
         return dict(name=name,standing=row,form=(row.get('form') if row else None) or form,
                     average_goals=round(sum(h for h,_ in scores)/len(scores),2) if scores else None,
+                    average_conceded=round(sum(a for _,a in scores)/len(scores),2) if scores else None,
                     clean_sheet_pct=round(sum(a==0 for _,a in scores)*100/len(scores),1) if scores else None,sample_size=len(scores))
     runtime=runtime_status(db)
     run=db.scalar(select(m.PipelineRun).where(m.PipelineRun.fixture_id==fixture.id).order_by(m.PipelineRun.updated_at.desc()).limit(1))
