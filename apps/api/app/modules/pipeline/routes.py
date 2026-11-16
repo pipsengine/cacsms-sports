@@ -151,3 +151,39 @@ def events(fixture_id:str|None=None,status:str|None=None,limit:int=100):
   if status:query=query.where(m.PipelineEvent.status==status)
   rows=db.scalars(query.order_by(m.PipelineEvent.created_at.desc()).limit(min(max(limit,1),500))).all()
   return [{'id':row.id,'fixture_id':row.fixture_id,'kind':row.kind,'status':row.status,'attempts':row.attempts,'available_at':row.available_at,'lease_until':row.lease_until,'completed_at':row.completed_at,'error_code':row.error_code} for row in rows]
+
+
+@router.get('/contracts')
+def workspace_contracts():
+ from app.modules.pipeline.workspace_contracts import definitions
+ return definitions()
+
+
+@router.get('/runs/{run_id}/evidence')
+def stage_evidence(run_id:str,stage:str):
+ """Resolve only references actually recorded on this run/stage, without executing it."""
+ from app.modules.pipeline.workspace_contracts import INPUTS
+ if stage not in INPUTS:raise HTTPException(422,'Unknown stage')
+ with SessionLocal() as db:
+  run=db.get(m.PipelineRun,run_id)
+  if run is None:raise HTTPException(404,'Unknown run')
+  row=db.scalar(select(m.PipelineStage).where(m.PipelineStage.run_id==run_id,m.PipelineStage.stage_key==stage))
+  if row is None:return []
+  models=(m.Observation,m.Fixture,m.Research,m.Feature,m.Prediction,m.Odds,m.Qualification,m.StrategyRun,m.Ticket,m.Betslip,m.TicketVerification,m.StageRecord,m.Result,m.Settlement,m.BookingCode,m.TeamStatistic,m.BrowserCapture)
+  identifiers=list(dict.fromkeys(row.evidence_ids or []))[:500]
+  resolved={}
+  for model in models:
+   remaining=set(identifiers)-set(resolved)
+   if not remaining:break
+   objects=db.scalars(select(model).where(model.id.in_(remaining))).all()
+   providers={}
+   if model is m.Observation and objects:
+    providers={p.id:p for p in db.scalars(select(m.Source).where(m.Source.id.in_({o.source_id for o in objects})))}
+   for obj in objects:
+    if model is m.Observation:
+     source=providers.get(obj.source_id)
+     if not source or not source.enabled or source.permission!='AUTHORIZED':
+      resolved[obj.id]={'id':obj.id,'type':'Observation','status':'SOURCE_UNAVAILABLE','record':{'source_id':obj.source_id,'observed_at':obj.observed_at}}
+      continue
+    resolved[obj.id]={'id':obj.id,'type':model.__name__,'status':'RECORDED_REFERENCE','record':{col.name:getattr(obj,col.name) for col in model.__table__.columns}}
+  return [resolved.get(ident,{'id':ident,'type':'UNRESOLVED','status':'REFERENCE_NOT_FOUND','record':None}) for ident in identifiers]

@@ -90,8 +90,18 @@ def code_detail(id:str):
   return {c.name:getattr(o,c.name) for c in o.__table__.columns}
 @app.get(PREFIX+'/models/{id}/evaluations')
 def model_evaluations(id:str):return []
+@app.get(PREFIX+'/sources/overview')
+def source_overview():
+ from app.modules.acquisition import source_intelligence as si
+ with SessionLocal() as s:return si.overview(s)
+@app.get(PREFIX+'/sources/analytics')
+def source_analytics():
+ from app.modules.acquisition import source_intelligence as si
+ with SessionLocal() as s:return si.analytics(s)
 @app.get(PREFIX+'/sources/health')
-def source_health():return rows_for('sources')
+def source_health():
+ from app.modules.acquisition import source_intelligence as si
+ with SessionLocal() as s:return si.health(s)
 @app.get(PREFIX+'/sources/registry')
 def source_registry():
  from app.modules.acquisition.source_policy import registry
@@ -340,9 +350,8 @@ def create_acquisition_job(item:AcquisitionRequest,x_admin_token:str|None=Header
     except (ValueError,PermissionError) as exc:raise HTTPException(422,str(exc)) from exc
 @app.get(PREFIX+'/acquisition/jobs')
 def acquisition_jobs():
-    with SessionLocal() as session:
-        jobs=session.scalars(select(m.AcquisitionJob).order_by(m.AcquisitionJob.created_at.desc()).limit(100)).all()
-        return [{'id':j.id,'source_id':j.source_id,'fixture_id':j.fixture_id,'section':j.section,'status':j.status,'attempts':j.attempts,'max_attempts':j.max_attempts,'created_at':j.created_at,'updated_at':j.updated_at,'error_code':j.error_code,'observation_id':j.observation_id} for j in jobs]
+    from app.modules.acquisition import source_intelligence as si
+    with SessionLocal() as session:return si.acquisition_jobs(session)
 @app.get(PREFIX+'/acquisition/jobs/{job_id}')
 def acquisition_job_detail(job_id:str):
     with SessionLocal() as session:
@@ -531,6 +540,12 @@ app.include_router(rollover_router)
 # Ticket Builder (registers programme-engine paper tickets in the canonical ticket register)
 from app.modules.tickets.builder_routes import router as ticket_builder_router
 app.include_router(ticket_builder_router)
+
+from app.modules.tickets.workspace_routes import router as betslip_workspace_router
+app.include_router(betslip_workspace_router)
+
+from app.modules.tickets.booking_workspace_routes import router as booking_workspace_router
+app.include_router(booking_workspace_router)
 
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):

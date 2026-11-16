@@ -2,7 +2,6 @@
 import os, secrets
 from fastapi import APIRouter,Header,HTTPException
 from pydantic import BaseModel,Field
-from sqlalchemy import select
 from app.db.base import SessionLocal
 from app.db import models as m
 from app.modules.vision.browser import capture
@@ -11,15 +10,26 @@ class CaptureRequest(BaseModel):
  fixture_id:str
  source_id:str
  url:str=Field(max_length=2000)
+
+
+@router.get('/browser/overview')
+def browser_overview():
+ from app.modules.vision import browser_intelligence as bi
+ with SessionLocal() as db:return bi.overview(db)
+
+
 @router.get('/browser/sessions')
 def browser_sessions():
- with SessionLocal() as db:
-  sessions=db.scalars(select(m.BrowserCapture).order_by(m.BrowserCapture.created_at.desc()).limit(100)).all()
-  return [{'id':s.id,'fixture_id':s.fixture_id,'source_id':s.source_id,'url':s.url,'status':s.status,'evidence_hash':s.evidence_hash,'vision_status':s.vision_status,'created_at':s.created_at,'error':s.error} for s in sessions]
+ from app.modules.vision import browser_intelligence as bi
+ with SessionLocal() as db:return bi.sessions(db)
+
+
 @router.get('/browser/summary')
 def browser_summary():
- rows=browser_sessions()
- return {'mode':'PAPER','sessions':len(rows),'captured':sum(r['status']=='CAPTURED' for r in rows),'vision_verified':sum(r['vision_status']=='VERIFIED' for r in rows),'vision_provider':'CONFIGURED_NOT_TESTED' if all(os.getenv(k) for k in ('SPORTS_VISION_ENDPOINT','SPORTS_VISION_API_KEY','SPORTS_VISION_MODEL','SPORTS_VISION_ALLOWED_HOSTS')) else 'NOT_CONFIGURED','recent':rows[:10]}
+ from app.modules.vision import browser_intelligence as bi
+ with SessionLocal() as db:return bi.summary(db)
+
+
 @router.post('/admin/browser/capture',status_code=201)
 async def capture_admin(item:CaptureRequest,x_admin_token:str|None=Header(default=None)):
  expected=os.getenv('SPORTS_ADMIN_TOKEN','')
@@ -45,11 +55,11 @@ async def capture_admin(item:CaptureRequest,x_admin_token:str|None=Header(defaul
 
 @router.get('/browser/readiness')
 def browser_readiness():
- from pathlib import Path
  configured=all(os.getenv(k) for k in ('SPORTS_VISION_ENDPOINT','SPORTS_VISION_API_KEY','SPORTS_VISION_MODEL','SPORTS_VISION_ALLOWED_HOSTS'))
  from app.modules.acquisition.source_policy import PROHIBITED,prohibition
  restricted='; '.join(f"{e['name']} ({d}): {e['reason']}" for d,e in PROHIBITED.items() if prohibition(d)) or 'None'
- return {'restricted_sources':restricted,'autonomous_acquisition':'OpenLigaDB API + Football-Data.co.uk CSV (structured, permitted; no browser needed)','mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_TESTED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
+ return {'restricted_sources':restricted,'autonomous_acquisition':'OpenLigaDB API + Football-Data.co.uk CSV (structured, permitted; no browser needed)','mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_CLAIMED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
+
 
 @router.post('/admin/browser/{capture_id}/infer')
 async def infer_admin(capture_id:str,x_admin_token:str|None=Header(default=None)):

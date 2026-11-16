@@ -1,9 +1,9 @@
-# Browser & vision operations
+# Browser & Vision Operator
 
-Review browser sessions, extraction evidence and source access policy
+Autonomous authorized browsing, screenshot evidence and computer-vision readiness.
 
-Data sources: browser/sessions, sources.
+Data sources: `GET /api/v1/sports/browser/overview`, `/browser/sessions`, `/browser/summary`, `/browser/readiness`.
 
-Operational metrics: Active sessions, Verified extractions, Failures, Permission blocks.
+Operational metrics: Browser sessions, captured evidence, vision-verified, in progress, failed, authorized / prohibited sources, system health.
 
-Read-only presentation, evidence-first, PAPER mode.
+Capture is gated by hostname allowlist and explicit source authorization. Screenshots are not vision-verified research until independent review. Prohibited hosts (e.g. BetExplorer without written consent) remain blocked. PAPER mode.

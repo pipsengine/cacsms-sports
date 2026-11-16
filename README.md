@@ -137,3 +137,15 @@ These tables are labelled **Community Table**, with attribution and capture time
 ## Standings acquisition API
 
 The supplied standings API package is integrated with canonical records, existing administrator authentication, the autonomous scheduler, and the League Tables & Statistics page. See [endpoints, source registration, correction history and tests](docs/STANDINGS_API_INTEGRATION.md). Football-Data CSV acquisition starts only for explicitly authorized registrations; the sidebar is unchanged.
+
+## Betslip Preparation workspace
+
+The Betslip Preparation module is integrated at `/sports/betslip` with the existing canonical paper-ticket engine, five dashboard tabs, verification/audit history and a recorded-betslip paper preview. The sidebar is unchanged. See [integration details and validation](docs/BETSLIP_PREPARATION_INTEGRATION.md).
+
+## Booking Codes workspace
+
+The Booking Codes module is integrated at `/sports/booking-codes` with a canonical register, recorded evidence/audit dialogs, history, analytics and explicit provider-readiness states. The sidebar is unchanged. See [integration details and provider limitations](docs/BOOKING_CODES_INTEGRATION.md).
+
+## Engine Orchestrator workspace
+
+The orchestrator design is integrated at `/sports/orchestrator` with the existing canonical twelve-stage engine, graph/list views, versioned contracts, evidence resolution and immutable execution history. Sidebar preserved; Pause updates affects the display only. See [integration and validation details](docs/ORCHESTRATOR_DESIGN_INTEGRATION.md).
