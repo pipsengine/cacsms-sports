@@ -84,6 +84,9 @@ def cycle(factory=SessionLocal,fetcher=None):
   from app.modules.standings.service import collect as collect_standings
   report['standings']=collect_standings(factory)
   report['errors'].extend(report['standings']['errors'])
+  from app.modules.autonomy.open_intelligence import collect as collect_intelligence
+  report['open_intelligence']=collect_intelligence(factory)
+  report['errors'].extend(report['open_intelligence'].get('errors',[]))
   from app.modules.autonomy.discovery import collect
   discovery=collect(factory,**({'fetcher':fetcher} if fetcher is not None else {}))
   report['discovery']=discovery

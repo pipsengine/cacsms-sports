@@ -61,6 +61,10 @@ def test_evaluation_uses_existing_gates_and_lower_bound(store):
     assert report['evaluations'][0]['outcome_key']=='HOME'
     assert report['outcome']==dict(probabilities={'HOME':82.4,'DRAW':12.1,'AWAY':5.5},confidence='High')
     assert report['verdict']=='Model favours home win (82.4%).'
+    with factory() as db:
+        for ident in ('pDRAW','pAWAY'):db.delete(db.get(m.Prediction,ident))
+        db.commit()
+        assert service.workspace(db,'fixture')['verdict']=='Home win probability 82.4%; not a home win 17.6% (draw/away not modelled separately).'
     assert report['metrics']['model_brier']==0.198 and report['metrics']['predictions']==4
 
 

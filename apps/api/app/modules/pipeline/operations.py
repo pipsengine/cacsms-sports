@@ -163,6 +163,25 @@ def acquire(db,run,at):
 
 # 03 Research --------------------------------------------------------------------------
 
+def autonomous_quorum(db):
+ """Built-in independence groups for system-registered open-data providers (explicit policy JSON overrides)."""
+ from app.modules.autonomy.open_intelligence import GROUPS,enabled
+ if not enabled():return {}
+ return {sid:{'independence_group':group,'reviewed':True} for sid,group in GROUPS.items() if authorized(db,sid)}
+
+
+def covered_sections(db):
+ """Research sections at least one enabled, authorized source can supply (configured feeds or open-data producers)."""
+ from app.modules.acquisition.jobs import feed_config
+ from app.modules.autonomy.open_intelligence import PRODUCED_SECTIONS,FD_SOURCE_ID,enabled
+ covered=set(PRODUCED_SECTIONS) if enabled() and authorized(db,FD_SOURCE_ID) else set()
+ try:feeds=feed_config()
+ except ValueError:feeds={}
+ for sid,sections in feeds.items():
+  if isinstance(sections,dict) and authorized(db,sid):covered|=set(sections)
+ return covered
+
+
 def canonical_content(value):
  if isinstance(value,bool) or value is None:return value
  if type(value) in (int,float):
@@ -202,6 +221,8 @@ def research(db,run,at):
  try:policy=json.loads(os.getenv('SPORTS_RESEARCH_QUORUM_JSON') or '{}')
  except ValueError:raise Waiting('Research corroboration policy is invalid',state='BLOCKED',code='POLICY_INVALID')
  if not isinstance(policy,dict):raise Waiting('Research corroboration policy must be an object',state='BLOCKED',code='POLICY_INVALID')
+ policy={**autonomous_quorum(db),**policy}
+ covered=covered_sections(db)
  deadline_passed=at>=utc(fixture.kickoff_at)-timedelta(minutes=deadline_minutes())
  sections={};refs=[]
  for section in SECTIONS:
@@ -227,6 +248,9 @@ def research(db,run,at):
    sections[section]={'status':'VERIFIED','evidence_ids':ids,'details':details}
   elif section in OPTIONAL_SECTIONS and deadline_passed and not details['conflict']:
    sections[section]={'status':'UNAVAILABLE','evidence_ids':[],'details':{**details,'method':'RESEARCH_DEADLINE','reason':'No corroborated evidence by the pre-kickoff research deadline'}}
+  elif section in OPTIONAL_SECTIONS and section not in covered and not details['conflict'] and not any(o.payload.get('section')==section for o in valid):
+   # No enabled, authorized source can supply this section: record that fact instead of waiting forever.
+   sections[section]={'status':'UNAVAILABLE','evidence_ids':[],'details':{**details,'method':'NO_SOURCE_COVERAGE','reason':'No enabled authorized source provides this section'}}
   else:
    sections[section]={'status':'CONFLICTED' if details['conflict'] else 'PENDING','evidence_ids':[],'details':details}
   refs.extend(ids)

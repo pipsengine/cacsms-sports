@@ -152,9 +152,12 @@ def insights(analysis,outcomes):
         if text:items.append('%s last 5: %s.'%(team['name'],text))
     if analysis['expected_goals']:items.append('Expected goals: %s vs %s.'%(analysis['expected_goals']['home'],analysis['expected_goals']['away']))
     verdict=None
-    if outcomes:
+    if {'HOME','DRAW','AWAY'}<=set(outcomes):
         key,value=max(outcomes.items(),key=lambda kv:kv[1])
         verdict='Model favours %s (%.1f%%).'%({'HOME':'home win','DRAW':'draw','AWAY':'away win'}[key],value)
+    elif 'HOME' in outcomes:
+        # A home-win-only model cannot name a favourite among three outcomes.
+        verdict='Home win probability %.1f%%; not a home win %.1f%% (draw/away not modelled separately).'%(outcomes['HOME'],100-outcomes['HOME'])
     return items,verdict
 
 
