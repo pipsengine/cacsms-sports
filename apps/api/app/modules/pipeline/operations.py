@@ -414,7 +414,13 @@ def evaluate(db,run,at):
    if not .90<=overround<=1.25:rejected.append({**entry,'reason':'BOOKMAKER_MARGIN_OUT_OF_RANGE'});continue
    if not model_approved(db.get(m.ModelVersion,prediction.model_id)):rejected.append({**entry,'reason':'MODEL_NOT_APPROVED'});continue
    pairs.append({**entry,'market_risk':'PASS'})
- if not complete:raise Waiting('No complete, source-backed, fresh 1X2 market is available',code='NO_FRESH_MARKET')
+ if not complete:
+  latest_at=max((utc(q.observed_at) for q in quotes),default=None)
+  reason='No complete, source-backed, fresh 1X2 market is available'
+  reason+=('; latest stored quote: '+latest_at.isoformat() if latest_at else '; no odds stored for this fixture')
+  raise Waiting(reason,code='NO_FRESH_MARKET',details={'stored_quotes':len(quotes),'fresh_source_backed_quotes':len(latest),
+      'latest_quote_at':latest_at.isoformat() if latest_at else None,'max_quote_age_seconds':int(QUOTE_MAX_AGE.total_seconds()),
+      'required_action':'Supply current authorized odds covering this fixture; collection alone cannot refresh old provider prices'})
  if not pairs:raise Waiting('No fresh market passes model and bookmaker-margin checks',refs,state='NO_OPPORTUNITY',code='MARKET_CHECKS_FAILED',details={'market_evaluations':rejected})
  return receipt(db,run,'evaluate','MARKET_RISK_EVALUATED',refs,{'pairs':pairs,'rejected':rejected,'max_quote_age_seconds':int(QUOTE_MAX_AGE.total_seconds()),
   'overround_range':[.90,1.25],'paper_exposure_only':True},at)

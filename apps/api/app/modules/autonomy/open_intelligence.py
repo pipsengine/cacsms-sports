@@ -372,6 +372,13 @@ def collect_odds(factory,fetch_fd=None,at=None):
  (when the provider captured them), so freshness gates judge them honestly."""
  at=at or now();fetch_fd=fetch_fd or fetch_csv;report={'fixtures':0,'quotes':0}
  rows,stamp=fetch_fd(FD_FIXTURES)
+ report.update(provider='Football-Data.co.uk',feed_url=FD_FIXTURES,
+               published_at=stamp.isoformat() if stamp else None,
+               feed_rows=len(rows),competition_rows=sum(row.get('Div')=='D1' for row in rows))
+ report['status']='NO_COMPETITION_COVERAGE' if not report['competition_rows'] else 'AVAILABLE'
+ from app.modules.pipeline.operations import QUOTE_MAX_AGE
+ if report['competition_rows'] and stamp and at-utc(stamp)>QUOTE_MAX_AGE:
+  report['status']='STALE_PROVIDER_ODDS'
  stamp=min(stamp or at,at)
  from app.modules.pipeline.operations import import_prices
  for row in rows:
@@ -428,9 +435,17 @@ def collect(factory,at=None):
                         ('rollover',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'rollover',at=at)),
                         ('ticket-builder',timedelta(minutes=1),lambda:__import__('app.modules.tickets.builder',fromlist=['cycle']).cycle(factory,at=at)),
                         ('market-benchmark',timedelta(minutes=30),lambda:__import__('app.modules.markets.intelligence',fromlist=['refresh_benchmark']).refresh_benchmark(factory,at=at))):
-  if not due(factory,'open-intel:schedule:'+name,every,at):continue
+  schedule_key='open-intel:schedule:'+name
+  if not due(factory,schedule_key,every,at):
+   if name=='odds':
+    with factory() as db:
+     state=db.get(m.ProviderSyncState,schedule_key)
+     if state and state.payload.get('last_report'):report[name]={**state.payload['last_report'],'cached':True}
+   continue
   try:
    report[name]=job()
+   if name=='odds':
+    with factory.begin() as db:cached(db,schedule_key,None).payload={'last_report':report[name]}
    report['errors'].extend(report[name].get('errors',[]) if isinstance(report[name],dict) else [])
   except Exception as exc:
    report['errors'].append({'step':name,'code':type(exc).__name__,'detail':str(exc)[:160]})

@@ -137,13 +137,22 @@ def test_odds_are_stamped_with_provider_time_and_stored_with_evidence(factory):
     row={'Div':'D1','Date':(published+timedelta(days=3)).strftime('%d/%m/%Y'),'HomeTeam':'Bayern Munich','AwayTeam':'FC Koln',
          'B365H':'1.27','B365D':'5.40','B365A':'12.00','B365>2.5':'1.56','B365<2.5':'2.47','AHh':'-1.75','B365AHH':'1.90','B365AHA':'1.95','AvgH':'1.30'}
     report=oi.collect_odds(factory,fetch_fd=lambda url:([row,{'Div':'E0','HomeTeam':'x'}],published))
-    assert report=={'fixtures':1,'quotes':7}
+    assert report['fixtures']==1 and report['quotes']==7
+    assert report['status']=='STALE_PROVIDER_ODDS'
     with factory() as db:
         quotes=db.scalars(select(m.Odds)).all()
         assert {(q.bookmaker,q.market_key,q.outcome_key) for q in quotes}>={('Bet365','1X2','HOME'),('Bet365','OU_2.5','OVER'),('Bet365','AH_-1.75','AWAY')}
         assert all(abs((q.observed_at-published).total_seconds())<1 for q in quotes), 'never re-stamped as fresh'
         assert all(db.get(m.MarketEvidence,q.id) is not None for q in quotes)
     assert oi.collect_odds(factory,fetch_fd=lambda url:([row],published))['quotes']==0, 'same file is not re-imported'
+
+
+def test_odds_reports_missing_competition_coverage(factory):
+    at=datetime(2026,11,17,tzinfo=timezone.utc)
+    report=oi.collect_odds(factory,fetch_fd=lambda url:([{'Div':'E0'}],at),at=at)
+    assert report['status']=='NO_COMPETITION_COVERAGE'
+    assert report['feed_rows']==1 and report['competition_rows']==0
+    assert report['quotes']==0
 
 
 def test_disabled_without_open_data_opt_in(factory,monkeypatch):
