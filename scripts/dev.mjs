@@ -96,8 +96,11 @@ if (migration.error || migration.status !== 0) {
   if (migration.error) console.error(migration.error.message);
   process.exit(migration.status || 1);
 }
-// --timeout-graceful-shutdown: open live-update (SSE) streams would otherwise block reloads.
-const api = start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', '--reload', '--host', '127.0.0.1', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
+// Keep the operational stack stable while files are edited. Reload is opt-in and
+// restricted to application code so tests do not interrupt a running API.
+const reloadArgs = process.env.SPORTS_API_RELOAD === '1' ? ['--reload', '--reload-dir', path.join(apiDir, 'app')] : [];
+console.log(`[dev] API auto-reload ${reloadArgs.length ? 'enabled' : 'disabled; restart to apply Python changes'}.`);
+const api = start('api', '36', venvPython, ['-m', 'uvicorn', 'app.main:app', ...reloadArgs, '--host', '127.0.0.1', '--port', '8000', '--timeout-graceful-shutdown', '3'], {
   cwd: apiDir,
   env: pyEnv,
 });
