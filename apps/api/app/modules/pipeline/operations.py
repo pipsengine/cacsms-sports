@@ -392,8 +392,8 @@ def evaluate(db,run,at):
  quotes=db.scalars(select(m.Odds).where(m.Odds.fixture_id==run.fixture_id).order_by(m.Odds.observed_at.desc(),m.Odds.id)).all()
  latest={}
  for quote in quotes:
-  proof=db.get(m.MarketEvidence,quote.id)
-  if proof and authorized(db,proof.source_id) and timedelta(0)<=at-utc(quote.observed_at)<=QUOTE_MAX_AGE:latest.setdefault((quote.bookmaker,quote.market_key,quote.outcome_key),quote)
+  from app.modules.markets.odds_intelligence import record_assessment
+  if record_assessment(db,quote,at)['eligible']:latest.setdefault((quote.bookmaker,quote.market_key,quote.outcome_key),quote)
  forecast=latest_record(db,run,'FORECASTS_GENERATED')
  predictions=db.scalars(select(m.Prediction).where(m.Prediction.fixture_id==run.fixture_id,m.Prediction.id.in_(forecast.evidence_ids if forecast else []))).all()
  pairs=[];rejected=[];refs=[];complete=0
@@ -438,10 +438,12 @@ def qualify(db,run,at):
   if previous is None:
    result=qualify_from_database(db,pair['prediction_id'],pair['odds_id'],now=at);previous=db.get(m.Qualification,result['id']);previous.decided_at=at
    previous.gates={**previous.gates,'market_risk':'PASS','risk_record_id':evaluation.id}
-  passed=previous.decision=='QUALIFIED' and previous.gates.get('market_risk')=='PASS'
+  from app.modules.markets.odds_intelligence import assess
+  quality=assess(db,db.get(m.Odds,pair['odds_id']),at)
+  passed=previous.decision=='QUALIFIED' and previous.gates.get('market_risk')=='PASS' and quality['eligible']
   if passed:refs.append(previous.id)
   decisions.append({'qualification_id':previous.id,'decision':'QUALIFIED' if passed else 'REJECTED',
-                    'reason_codes':previous.gates.get('reason_codes',[]) or ([] if passed else ['MARKET_RISK_NOT_PASSED']),
+                    'reason_codes':list(dict.fromkeys(previous.gates.get('reason_codes',[])+quality['rejection_reasons'])) or ([] if passed else ['MARKET_RISK_NOT_PASSED']),
                     'metrics':previous.gates.get('metrics',{}),'gates':{k:v for k,v in previous.gates.items() if k not in ('reason_codes','metrics')}})
  if not refs:
   reasons=sorted({code for item in decisions for code in item['reason_codes']})
@@ -466,6 +468,8 @@ def allocate(db,run,at):
   if q.gates.get('market_risk')!='PASS' or not model_approved(db.get(m.ModelVersion,p.model_id)):continue
   evidence=db.get(m.MarketEvidence,price.id)
   if evidence is None or not authorized(db,evidence.source_id):continue
+  from app.modules.markets.odds_intelligence import assess
+  if not assess(db,price,at)['eligible']:continue
   feature=db.get(m.Feature,p.feature_id);dossier=db.get(m.Research,feature.research_id) if feature else None
   current=db.scalar(select(m.Research).where(m.Research.fixture_id==fixture.id).order_by(m.Research.version.desc()).limit(1))
   if dossier is None or current is None or current.id!=dossier.id or dossier.status!='VERIFIED':continue

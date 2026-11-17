@@ -160,3 +160,10 @@ def test_disabled_without_open_data_opt_in(factory,monkeypatch):
     assert oi.collect(factory)=={'enabled':False,'errors':[]}
     monkeypatch.setenv('SPORTS_OPENLIGADB_ENABLED','1');monkeypatch.setenv('SPORTS_FOOTBALL_DATA_ENABLED','0')
     assert oi.collect(factory)['enabled'] is False
+
+
+@pytest.mark.parametrize('published',[None,datetime(2026,11,17,12),datetime(2099,1,1,tzinfo=timezone.utc)])
+def test_missing_naive_future_provider_time_is_never_replaced_with_import_time(factory,published):
+    report=oi.collect_odds(factory,fetch_fd=lambda url:([{'Div':'D1'}],published))
+    assert report['status']=='UNVERIFIED_PROVIDER_TIMESTAMP' and report['quotes']==0
+    with factory() as db:assert db.scalar(select(func.count()).select_from(m.Odds))==0

@@ -97,7 +97,7 @@ class Prediction(Base):
  # Uncertainty interval and per-feature explanation computed from the approved artifact.
  details:Mapped[dict|None]=mapped_column(JSON,default=dict)
 class Odds(Base):
- __tablename__='odds_snapshots';__table_args__=(CheckConstraint('decimal_odds > 1',name='positive_odds'),{'schema':'markets'})
+ __tablename__='odds_snapshots';__table_args__=(CheckConstraint('decimal_odds > 1',name='positive_odds'),UniqueConstraint('fixture_id','bookmaker','market_key','outcome_key','observed_at','decimal_odds',name='odds_price_identity'),{'schema':'markets'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
  fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'))
  bookmaker:Mapped[str]=mapped_column(String(60))
@@ -417,6 +417,34 @@ class MarketEvidence(Base):
  odds_id:Mapped[str]=mapped_column(ForeignKey('markets.odds_snapshots.id'),primary_key=True)
  observation_id:Mapped[str]=mapped_column(ForeignKey('sources.observations.id'))
  source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+
+
+class OddsQualityAssessment(Base):
+ __tablename__='odds_quality_assessments';__table_args__=(Index('ix_odds_quality_quote_time','odds_id','assessed_at'),{'schema':'markets'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ odds_id:Mapped[str]=mapped_column(ForeignKey('markets.odds_snapshots.id'),nullable=False)
+ observation_id:Mapped[str|None]=mapped_column(ForeignKey('sources.observations.id'))
+ assessed_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ classification:Mapped[str]=mapped_column(String(24),nullable=False)
+ eligible:Mapped[bool]=mapped_column(Boolean,nullable=False)
+ reasons:Mapped[list]=mapped_column(JSON,default=list)
+ policy_version:Mapped[str]=mapped_column(String(30),default='odds-intelligence-v1')
+
+
+class OddsSourceProfile(Base):
+ __tablename__='odds_sources';__table_args__={'schema':'sources'}
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'),primary_key=True)
+ source_type:Mapped[str]=mapped_column(String(40),default='UNVERIFIED')
+ sports:Mapped[list]=mapped_column(JSON,default=list)
+ leagues:Mapped[list]=mapped_column(JSON,default=list)
+ markets:Mapped[list]=mapped_column(JSON,default=list)
+ classifications:Mapped[list]=mapped_column(JSON,default=list)
+ collection_method:Mapped[str]=mapped_column(String(40),default='UNCONFIGURED')
+ expected_update_seconds:Mapped[int|None]=mapped_column(Integer)
+ priority:Mapped[int]=mapped_column(Integer,default=100)
+ fallback_source_ids:Mapped[list]=mapped_column(JSON,default=list)
+ policy_reference:Mapped[str|None]=mapped_column(Text)
+ limitations:Mapped[list]=mapped_column(JSON,default=list)
 
 
 # Market catalogue: registered definitions vs. source-observed availability (never conflated) ---------------

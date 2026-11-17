@@ -58,7 +58,7 @@ def promote_model(db,model_id,*,actor,at=None):
  artifact={k:v for k,v in (model.validation or {}).items() if k not in REQUIRED_APPROVALS}
  passed,reasons,evidence=assess_challenger(artifact)
  if not passed:
-  db.add(m.ModelGovernanceSnapshot(model_id=model.id,status='PROMOTION_REJECTED',reasons=reasons,reference=evidence.get('baseline') or {},recent=evidence.get('holdout') or {}))
+  db.add(m.ModelGovernanceSnapshot(model_id=model.id,status='PROMOTION_REJECTED',reasons=reasons,reference=evidence.get('baseline') or {},recent={**(evidence.get('holdout') or {}),'calibration_error':evidence.get('calibration_error'),'dataset':'CHRONOLOGICAL_HOLDOUT','evaluation_window':{'start':artifact.get('holdout_first_result'),'end':artifact.get('holdout_last_result')},'approval_status':'APPROVED' if passed else 'REJECTED'}))
   db.add(m.AuditEvent(actor=actor,action='model.promotion_rejected',correlation_id=model.id,payload={'reasons':reasons,'evidence':evidence}))
   return {'model_id':model.id,'status':model.status,'promoted':False,'reasons':reasons,'evidence':evidence}
  retired=[]
@@ -73,6 +73,6 @@ def promote_model(db,model_id,*,actor,at=None):
                    'calibration_error':round(evidence['calibration_error'],6),
                    'promotion':{'promoted_at':at.isoformat(),'actor':actor,'evidence':evidence,'retired_model_ids':retired}}
  model.status='ACTIVE'
- db.add(m.ModelGovernanceSnapshot(model_id=model.id,status='PROMOTED',reasons=[],reference=evidence.get('baseline') or {},recent=evidence.get('holdout') or {}))
+ db.add(m.ModelGovernanceSnapshot(model_id=model.id,status='PROMOTED',reasons=[],reference=evidence.get('baseline') or {},recent={**(evidence.get('holdout') or {}),'calibration_error':evidence.get('calibration_error'),'dataset':'CHRONOLOGICAL_HOLDOUT','evaluation_window':{'start':artifact.get('holdout_first_result'),'end':artifact.get('holdout_last_result')},'approval_status':'APPROVED' if passed else 'REJECTED'}))
  db.add(m.AuditEvent(actor=actor,action='model.promoted',correlation_id=model.id,payload={'evidence':evidence,'retired_model_ids':retired}))
  return {'model_id':model.id,'status':model.status,'promoted':True,'reasons':[],'evidence':evidence,'retired_model_ids':retired}

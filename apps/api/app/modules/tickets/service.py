@@ -24,6 +24,9 @@ def validate_leg(db,qualification_id,at=None):
     observed=o.observed_at
     if observed.tzinfo is None:observed=observed.replace(tzinfo=timezone.utc)
     if observed>at or (at-observed).total_seconds()>900:raise TicketRejected('ODDS_NOT_FRESH')
+    from app.modules.markets.odds_intelligence import assess
+    quality=assess(db,o,at)
+    if not quality['eligible']:raise TicketRejected(','.join(quality['rejection_reasons']))
     return {'qualification_id':q.id,'fixture_id':fixture.id,'fixture':fixture.home_name+' v '+fixture.away_name,
             'market':p.market_key,'outcome':p.outcome_key,'odds':str(o.decimal_odds),
             'prediction_id':p.id,'odds_snapshot_id':o.id,'bookmaker':getattr(o,'bookmaker','UNSPECIFIED')}

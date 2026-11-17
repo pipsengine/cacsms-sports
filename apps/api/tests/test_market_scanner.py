@@ -35,6 +35,8 @@ def store():
         for market,outcome,price in [('OU_2.5','OVER',1.56),('OU_2.5','UNDER',2.47),('BTTS','YES',2.08),('BTTS','NO',1.73),('DC','1X',1.05)]:
             db.add(m.Odds(fixture_id='fixture',bookmaker='SportyBet',market_key=market,outcome_key=outcome,decimal_odds=price,observed_at=now-timedelta(minutes=5)))
         db.add(m.Odds(fixture_id='fixture',bookmaker='Other Book',market_key='1X2',outcome_key='HOME',decimal_odds=1.30,observed_at=now-timedelta(minutes=5)))
+        from odds_evidence_helpers import attach_price_evidence
+        attach_price_evidence(db,exclude=('unsourced',))
     yield factory,now
     engine.dispose()
 

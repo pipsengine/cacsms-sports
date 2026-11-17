@@ -59,6 +59,24 @@ def test_redirect_to_internal_address_is_aborted():
  assert run('https://source.example/a',Response(307,'https://internal.example/admin')).outcome==('abort','blockedbyclient')
 
 
+def test_subresource_permission_does_not_grant_navigation_permission():
+ route=Route('https://cdn.example/script.js',Response(200))
+ route.request.is_navigation_request=lambda:False
+ asyncio.run(browser.guard_route(route,['source.example'],['cdn.example']))
+ assert route.outcome==('fulfill',200)
+ navigation=Route('https://cdn.example/page',Response(200))
+ asyncio.run(browser.guard_route(navigation,['source.example'],['cdn.example']))
+ assert navigation.outcome==('abort','blockedbyclient')
+
+
+@pytest.mark.parametrize('target',['https://internal.example/a','https://www.betexplorer.com/a'])
+def test_subresource_redirect_still_enforces_ssrf_and_source_policy(target):
+ route=Route('https://cdn.example/script.js',Response(302,target))
+ route.request.is_navigation_request=lambda:False
+ asyncio.run(browser.guard_route(route,['source.example'],['cdn.example','internal.example','www.betexplorer.com']))
+ assert route.outcome==('abort','blockedbyclient')
+
+
 def test_redirect_downgrade_to_http_is_aborted():
  assert run('https://source.example/a',Response(302,'http://source.example/a')).outcome==('abort','blockedbyclient')
 

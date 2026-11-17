@@ -25,6 +25,8 @@ def draws(store):
         for i in range(12):add(db,now,f'd{i:02d}',.33+i*.001,3.4)        # edge ≈ 3.6 pp
         add(db,now,'low',.30,3.4)                                           # edge 0.6 pp < 1.5 pp
         add(db,now,'ht',.45,2.4,market='HT_1X2')                            # half-time draw, not full-time
+        from odds_evidence_helpers import attach_price_evidence
+        attach_price_evidence(db,source_id='src',exclude=tuple('of'+str(i) for i in range(1,8)))
     return factory,now
 
 

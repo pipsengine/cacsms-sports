@@ -4,6 +4,7 @@ import {Activity,AlertTriangle,ArrowRight,BarChart3,Bot,CalendarDays,CheckCircle
 import {useResearchScope,useResearchRemote} from './ResearchCatalogue';
 import './DeepMatchResearch.css';
 import './MarketIntelligence.css';
+import OddsIntelligencePanel from './OddsIntelligencePanel';
 
 const API='/api/v1/sports/market-intelligence/';
 type Step={key:string;name:string;status:string;detail:string};
@@ -53,6 +54,7 @@ export default function MarketIntelligence(){
  const healthSources=(sources.data||[]).filter(x=>x.status!=='NO_PERMITTED_FEED');
  const bench=o?.benchmark;
  return <div className="dmr mi">
+  <OddsIntelligencePanel revision={revision}/>
   {document.getElementById('deep-runtime-badge')&&createPortal(<span className={'dmr-runtime-badge '+(online?'online':'')}><Bot size={23}/>Autonomous Mode: {online?'ON':o?'OFF':'Checking'}<i/></span>,document.getElementById('deep-runtime-badge')!)}
   <div className="dmr-header"><div className="dmr-intro"><div className="dmr-eyebrow">MARKET INTELLIGENCE</div><h2>Market Intelligence</h2><p>Verified market prices, bookmaker mapping and price freshness across all supported sports.</p></div>
    <div className="dmr-kpis">{kpis.map(k=><div className={k.tone} key={k.t}><k.icon/><span>{k.t}</span><b>{k.v}</b><small className="mi-kpi-sub">{k.s}</small></div>)}</div></div>

@@ -99,6 +99,11 @@ def eligible(db,at):
   if model.status!='ACTIVE' or not all((model.validation or {}).get(k) is True for k in APPROVALS):excluded['MODEL_NOT_ACTIVE_APPROVED']+=1;continue
   if p.fixture_id!=o.fixture_id or p.market_key!=o.market_key or p.outcome_key!=o.outcome_key:excluded['MARKET_MAPPING_MISMATCH']+=1;continue
   if not timedelta(0)<=at-utc(o.observed_at)<=FRESHNESS:excluded['ODDS_NOT_FRESH']+=1;continue
+  from app.modules.markets.odds_intelligence import assess
+  quality=assess(db,o,at)
+  if not quality['eligible']:
+   for reason in quality['rejection_reasons']:excluded[reason]+=1
+   continue
   prob,odds=float(p.probability),float(o.decimal_odds)
   if prob*odds<=1:excluded['NO_POSITIVE_EV']+=1;continue
   if (f.id,p.market_key,p.outcome_key) in seen:continue

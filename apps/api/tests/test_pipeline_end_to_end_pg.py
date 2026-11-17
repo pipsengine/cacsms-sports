@@ -421,3 +421,22 @@ def test_shared_programme_pool_builds_real_risk_bounded_accumulator(factory):
   count=db.scalar(select(func.count()).select_from(m.Ticket))
   drive_run(db,second,at=at,recovery=True)
   assert db.scalar(select(func.count()).select_from(m.Ticket))==count
+
+
+def test_odds_quality_evidence_is_append_only_in_postgresql(factory):
+ from app.modules.pipeline.operations import import_prices
+ from app.modules.markets.odds_intelligence import record_assessment
+ from sqlalchemy import text
+ from sqlalchemy.exc import DBAPIError
+ at=seed(factory)
+ with factory.begin() as db:
+  import_prices(db,'fixture-integration',at)
+  quote=db.scalar(select(m.Odds))
+  assert record_assessment(db,quote,at)['eligible']
+  db.flush()
+  quality_id=db.scalar(select(m.OddsQualityAssessment.id))
+  for operation in ('UPDATE markets.odds_quality_assessments SET eligible=false WHERE id=:id',
+                    'DELETE FROM markets.odds_quality_assessments WHERE id=:id'):
+   with pytest.raises(DBAPIError):
+    with db.begin_nested():db.execute(text(operation),{'id':quality_id})
+  assert db.get(m.OddsQualityAssessment,quality_id).eligible

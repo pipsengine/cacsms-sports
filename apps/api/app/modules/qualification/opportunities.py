@@ -15,7 +15,9 @@ SECTION_LABEL={'standings':'league standings','recent_form':'team form','head_to
 
 def opportunities(db,only_qualified=True,min_probability=None,min_ev=None,search=None,sport=None,country=None,competition=None,category=None,at=None):
  at=at or aq._now()
- rows=[aq.decision_dict(db,*r) for r in aq._rows(db,'QUALIFIED' if only_qualified else 'ALL',search,sport,country,competition,category)]
+ from app.modules.markets.odds_intelligence import assess
+ raw=aq._rows(db,'QUALIFIED' if only_qualified else 'ALL',search,sport,country,competition,category)
+ rows=[aq.decision_dict(db,*r) for r in raw if not only_qualified or assess(db,db.get(m.Odds,r[0].odds_id),at)['eligible']]
  if not only_qualified:rows+=aq.pending_rows(db,at,search,sport,country,competition,category)
  if min_probability is not None:rows=[r for r in rows if r['probability'] is not None and r['probability']>=min_probability]
  # EV thresholds apply to priced rows; pending rows (no price) are kept only when not restricted to qualified.

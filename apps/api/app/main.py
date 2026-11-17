@@ -1,5 +1,5 @@
 from datetime import datetime,timezone
-from fastapi import FastAPI,HTTPException
+from fastapi import FastAPI,HTTPException,Query
 from fastapi.middleware.cors import CORSMiddleware
 from app.modules.diagnostics import router as diagnostics_router
 from sqlalchemy import select,func,text
@@ -8,6 +8,36 @@ from app.core.config import EXECUTION_MODE
 from app.db.base import SessionLocal
 from app.db import models as m
 app=FastAPI(title='CACSMS Sport AI 2.0',version='2.0.0',description='PAPER-only evidence-first sports intelligence API')
+
+@app.middleware('http')
+async def measure_requests(request, call_next):
+ import time
+ from app.modules.operations.telemetry import record_request
+ started=time.perf_counter()
+ status=500
+ try:
+  response=await call_next(request)
+  status=response.status_code
+  return response
+ finally:
+  route=request.scope.get('route')
+  record_request(request.method,getattr(route,'path','UNMATCHED'),time.perf_counter()-started,status)
+
+@app.get('/api/v1/sports/operations/telemetry',tags=['Operations'])
+def operational_telemetry():
+ from app.modules.operations.telemetry import snapshot
+ return snapshot()
+
+@app.middleware('http')
+async def authorize_mutations(request, call_next):
+ """Enforce the existing administrator role before parsing any mutation body."""
+ if request.url.path.startswith('/api/v1/sports/') and request.method in ('POST','PUT','PATCH','DELETE'):
+  from app.modules.pipeline.routes import admin_guard as require_admin
+  from starlette.responses import JSONResponse
+  try:require_admin(request.headers.get('x-admin-token'))
+  except HTTPException as exc:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
+ return await call_next(request)
+
 app.include_router(diagnostics_router)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=False,allow_methods=['GET'],allow_headers=['*'])
 PREFIX='/api/v1/sports'
@@ -95,7 +125,11 @@ def code_detail(id:str):
   if o is None:raise HTTPException(404,'Code not found')
   return {c.name:getattr(o,c.name) for c in o.__table__.columns}
 @app.get(PREFIX+'/models/{id}/evaluations')
-def model_evaluations(id:str):return []
+def model_evaluations(id:str,limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0)):
+ from app.modules.governance.history import evaluation_history
+ with SessionLocal() as db:
+  if db.get(m.ModelVersion,id) is None:raise HTTPException(404,'Unknown model')
+  return evaluation_history(db,id,limit,offset)
 @app.get(PREFIX+'/sources/overview')
 def source_overview():
  from app.modules.acquisition import source_intelligence as si
@@ -497,8 +531,26 @@ app.include_router(betslip_workspace_router)
 from app.modules.tickets.booking_workspace_routes import router as booking_workspace_router
 app.include_router(booking_workspace_router)
 
+from app.modules.markets.odds_routes import router as odds_intelligence_router
+app.include_router(odds_intelligence_router)
+
 @app.get(PREFIX+'/{resource:path}')
 def list_resource(resource:str):
  if resource not in TABLES:raise HTTPException(404,'Unknown resource')
  try:return rows_for(resource)
  except SQLAlchemyError as exc:raise HTTPException(503,'Database unavailable or migration missing') from exc
+
+
+def documented_openapi():
+ if app.openapi_schema:return app.openapi_schema
+ from fastapi.openapi.utils import get_openapi
+ schema=get_openapi(title=app.title,version=app.version,description=app.description,routes=app.routes)
+ schema.setdefault('components',{}).setdefault('securitySchemes',{})['AdministratorToken']={
+  'type':'apiKey','in':'header','name':'X-Admin-Token','description':'Configured administrator credential; required for all mutations. Read endpoints retain the existing local deployment access policy.'}
+ for operations in schema['paths'].values():
+  for method,operation in operations.items():
+   if method in ('post','put','patch','delete'):operation['security']=[{'AdministratorToken':[]}]
+ app.openapi_schema=schema
+ return schema
+
+app.openapi=documented_openapi

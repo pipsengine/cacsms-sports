@@ -40,10 +40,3 @@ def monitoring(model_id:str,window:int=50):
                 'monitoring_state':monitoring_status(model,decision,len(records)),
                 'monitoring_ready':decision.status=='MONITORED',
                 'sample_progress':sample_progress(db,model_id,records,window)}
-
-@router.get('/models/monitoring/summary')
-def monitoring_summary():
-    with SessionLocal() as db:
-        models=db.scalars(select(m.ModelVersion)).all()
-        return {'mode':'PAPER','models':[{'id':x.id,'name':x.name,'version':x.version,'status':x.status} for x in models],
-                'note':'No models activated or retrained by monitoring endpoint'}

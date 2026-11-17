@@ -3,9 +3,8 @@ from starlette.routing import Match
 from fastapi.testclient import TestClient
 from app.main import app
 
-# Identical copy kept in an in-flight module edit; tracked in docs/AUDIT_2026-11-17.md (D-07).
 # booking-codes/readiness is captured by /booking-codes/{id}, which delegates to it (behaviour asserted below).
-KNOWN={('GET','/api/v1/sports/models/monitoring/summary'),('GET','/api/v1/sports/booking-codes/readiness')}
+KNOWN={('GET','/api/v1/sports/booking-codes/readiness')}
 
 
 def unreachable():
@@ -32,3 +31,9 @@ def test_workflow_stages_are_the_canonical_twelve():
 def test_booking_code_readiness_is_served_and_paper_only():
  body=TestClient(app).get('/api/v1/sports/booking-codes/readiness').json()
  assert body['mode']=='PAPER' and body['paid_wager_submission']=='DISABLED' and body['booking_code_verification']=='UNAVAILABLE'
+
+
+def test_no_duplicate_method_path_pairs_including_dynamic_routes():
+ from collections import Counter
+ counts=Counter((method,route.path) for route in app.routes if hasattr(route,'methods') for method in route.methods)
+ assert all(count==1 for count in counts.values())

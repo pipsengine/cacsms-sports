@@ -379,7 +379,10 @@ def collect_odds(factory,fetch_fd=None,at=None):
  from app.modules.pipeline.operations import QUOTE_MAX_AGE
  if report['competition_rows'] and stamp and at-utc(stamp)>QUOTE_MAX_AGE:
   report['status']='STALE_PROVIDER_ODDS'
- stamp=min(stamp or at,at)
+ if stamp is None or stamp.tzinfo is None or utc(stamp)>at:
+  report.update(status='UNVERIFIED_PROVIDER_TIMESTAMP',reason='Missing, naive or future provider timestamp; acquisition time cannot replace it')
+  return report
+ stamp=utc(stamp)
  from app.modules.pipeline.operations import import_prices
  for row in rows:
   if row.get('Div')!='D1':continue
@@ -425,7 +428,7 @@ def collect(factory,at=None):
  for name,every,job in (('history',timedelta(minutes=5),lambda:refresh_history(factory,at=at)),
                         ('results',timedelta(minutes=1),lambda:corroborate_results(factory,at=at)),
                         ('evidence',EVIDENCE_REFRESH,lambda:produce_evidence(factory,at=at)),
-                        ('odds',ODDS_REFRESH,lambda:collect_odds(factory,at=at)),
+                        ('odds',ODDS_REFRESH,lambda:__import__('app.modules.markets.providers',fromlist=['acquire']).acquire(factory,at=at)),
                         ('market-archive',timedelta(minutes=2),lambda:__import__('app.modules.markets.history_import',fromlist=['collect']).collect(factory,at=at)),
                         ('qualification',timedelta(minutes=2),lambda:__import__('app.modules.qualification.autonomous',fromlist=['cycle']).cycle(factory,at=at)),
                         ('accumulator',timedelta(minutes=5),lambda:__import__('app.modules.strategies.accumulator',fromlist=['cycle']).cycle(factory,at=at)),

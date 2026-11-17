@@ -41,6 +41,8 @@ def store():
             db.add(m.Odds(id='o'+fx,fixture_id=fx,bookmaker='Book',market_key='1X2',outcome_key=outcome,decimal_odds=odds,observed_at=now-timedelta(minutes=age)));db.flush()
             db.add(m.MarketEvidence(odds_id='o'+fx,observation_id='obs',source_id='src'))
             db.add(m.Qualification(id='q'+fx,prediction_id='p'+fx,odds_id='o'+fx,decision='QUALIFIED',decided_at=now,gates={**gates,'reason_codes':[],'metrics':{}}))
+        from odds_evidence_helpers import attach_price_evidence
+        attach_price_evidence(db,source_id='src')
     yield factory,now
     event.remove(Base,'load',aware);engine.dispose()
 
@@ -106,3 +108,13 @@ def test_overview_and_endpoints(store,monkeypatch):
     app=FastAPI();app.include_router(accumulator_routes.router);client=TestClient(app)
     assert client.get('/api/v1/sports/programmes/accumulator/configuration').json()['policy']['max_legs']==12
     for path in ('overview','candidates','run-history','validation','analytics'):assert client.get('/api/v1/sports/programmes/accumulator/'+path).status_code==200
+
+
+def test_revoked_source_blocks_programme_and_ticket_even_after_qualification(store):
+ from app.modules.tickets.service import validate_leg,TicketRejected
+ factory,at=store
+ with factory.begin() as db:
+  db.get(m.Source,'src').permission='PROHIBITED'
+  rows,reasons=acc.eligible(db,at)
+  assert rows==[] and reasons['SOURCE_NOT_AUTHORIZED']>=1
+  with pytest.raises(TicketRejected,match='SOURCE_NOT_AUTHORIZED'):validate_leg(db,'qf1',at)

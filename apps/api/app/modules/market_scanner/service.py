@@ -150,7 +150,10 @@ def evaluate(db,prediction,model,quote,now):
     if feature is None or research is None:
         row.update(decision='REJECTED',reasons=['MISSING_FEATURE_OR_RESEARCH']);return row
     verdict=evaluate_market(aware(prediction,'predicted_at'),aware(quote,'observed_at'),model,aware(feature,'cutoff_at'),aware(research,'created_at'),now=now)
-    reasons=list(verdict['reason_codes'])
+    from app.modules.markets.odds_intelligence import assess
+    quality=assess(db,quote,now)
+    reasons=list(verdict['reason_codes'])+quality['rejection_reasons']
+    if not quality['eligible']:verdict['gates']['odds_freshness']='FAIL'
     if row['conservative_ev'] is None:reasons.append('NO_PROBABILITY_INTERVAL')
     elif row['conservative_ev']<=0:reasons.append('NO_CONSERVATIVE_EDGE')
     row.update(decision='QUALIFIED' if verdict['decision']=='QUALIFIED' and not reasons else 'REJECTED',reasons=reasons,gates=verdict['gates'])

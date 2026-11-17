@@ -37,6 +37,8 @@ def store():
         for i,(fx,market,outcome,price) in enumerate(quotes):
             db.add(m.Odds(id=f'q{i}',fixture_id=fx,bookmaker='Book',market_key=market,outcome_key=outcome,decimal_odds=price,observed_at=now-timedelta(minutes=5)));db.flush()
             db.add(m.MarketEvidence(odds_id=f'q{i}',observation_id='obs',source_id='source'))
+        from odds_evidence_helpers import attach_price_evidence
+        attach_price_evidence(db,exclude=('unsourced',))
     yield factory,now
     engine.dispose()
 

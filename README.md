@@ -150,3 +150,8 @@ The Booking Codes module is integrated at `/sports/booking-codes` with a canonic
 ## Engine Orchestrator workspace
 
 The orchestrator design is integrated at `/sports/orchestrator` with the existing canonical twelve-stage engine, graph/list views, versioned contracts, evidence resolution and immutable execution history. Sidebar preserved; Pause updates affects the display only. See [integration and validation details](docs/ORCHESTRATOR_DESIGN_INTEGRATION.md).
+
+
+### Post-audit remediation (17 November 2026)
+
+See [the remediation report](docs/POST_AUDIT_REMEDIATION_2026-11-17.md) for delivered changes, migration/rollback guidance, evidence and remaining readiness limits, and [the API inventory](docs/REMEDIATION_API_INVENTORY.md) for current routes. The application remains PAPER only; a permitted current price source is still required for fresh-market qualification.

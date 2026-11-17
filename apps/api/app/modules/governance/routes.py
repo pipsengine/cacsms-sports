@@ -4,6 +4,11 @@ from app.db.base import SessionLocal
 from app.db import models as m
 router=APIRouter(prefix='/api/v1/sports',tags=['Model governance'])
 
+@router.get('/governance/reconciliation-review')
+def reconciliation_review():
+ from app.modules.governance.reconciliation import review
+ with SessionLocal() as db:return review(db)
+
 @router.get('/models/workspace')
 def models_workspace(days:int=Query(30,ge=1,le=365)):
  from sqlalchemy.exc import SQLAlchemyError

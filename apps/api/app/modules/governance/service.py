@@ -34,7 +34,9 @@ def window_scores(records):
  if not records:return None
  pairs=[(p,y) for _,p,y in records]
  result=score_window(pairs)
- return {'n':len(pairs),'brier':result.get('brier'),'ece':result.get('calibration_error')}
+ return {'n':len(pairs),'brier':result.get('brier'),'log_loss':result.get('log_loss'),'ece':result.get('calibration_error'),
+         'calibration_error':result.get('calibration_error'),'dataset':'CURRENT_VERSION_LIVE_SETTLEMENTS',
+         'evaluation_window':{'start':records[0][0].isoformat(),'end':records[-1][0].isoformat()}}
 
 def evaluate_models(db,window=50,model_id=None):
  report=[]

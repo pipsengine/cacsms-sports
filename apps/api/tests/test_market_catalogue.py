@@ -38,6 +38,8 @@ def store():
             db.add(m.Odds(id=f'q{i}',fixture_id='fixture',bookmaker=book,market_key=market,outcome_key=outcome,decimal_odds=price,observed_at=now-timedelta(minutes=5)));db.flush()
             db.add(m.MarketEvidence(odds_id=f'q{i}',observation_id='obs',source_id='source'))
         db.add(m.Odds(id='unsourced',fixture_id='fixture',bookmaker='Rumour',market_key='1X2',outcome_key='HOME',decimal_odds=9.0,observed_at=now-timedelta(minutes=5)))
+        from odds_evidence_helpers import attach_price_evidence
+        attach_price_evidence(db,exclude=('unsourced',))
     yield factory,now
     engine.dispose()
 
