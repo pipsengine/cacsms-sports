@@ -32,7 +32,8 @@ def main():
             'database_dump_included': False, 'credentials_included': False,
             'production_ready': False}, indent=2))
         assert all(Path(name).name != '.env' for name in archive.namelist())
-        assert archive.testzip() is None
+    with zipfile.ZipFile(OUTPUT, 'r') as verified:
+        assert verified.testzip() is None
     print(json.dumps({'zip': str(OUTPUT), 'commit': commit, 'bytes': OUTPUT.stat().st_size,
                       'sha256': hashlib.sha256(OUTPUT.read_bytes()).hexdigest()}))
 
