@@ -95,3 +95,40 @@ def test_source_profile_cannot_override_authorization(store, monkeypatch):
     with factory() as db:
         assert db.get(m.Source, 'source').permission == 'PROHIBITED'
         assert db.scalar(select(m.AuditEvent)).payload['authorization_changed'] is False
+
+
+def test_reviewed_label_reconciliation_preserves_approval_and_audit(store):
+    from app.modules.governance.reconciliation import reconcile_labels
+    from app.modules.governance.promotion import assess_challenger
+    from app.modules.prediction.service import FEATURE_NAMES
+    factory, at = store
+    with factory.begin() as db:
+        model = db.get(m.ModelVersion, 'active')
+        original = {**model.validation, 'status': 'CHALLENGER', 'activation_allowed': False, 'note': 'Legacy review note',
+                    'coefficients': [0.] * 6, 'means': [0.] * 6, 'scales': [1.] * 6, 'feature_names': list(FEATURE_NAMES),
+                    'holdout_metrics': {'sample_size': 30, 'brier': .2, 'log_loss': .5},
+                    'baseline_metrics': {'sample_size': 30, 'brier': .25, 'log_loss': .6},
+                    'training_result_before': '2026-01-01', 'holdout_first_result': '2026-01-02',
+                    'reliability_bins': [{'count': 30, 'predicted': .5, 'observed': .5}]}
+        passed, _, evidence = assess_challenger(original)
+        assert passed
+        model.validation = {**original, 'promotion': {'evidence': evidence}}
+        db.add(m.AuditEvent(actor='original-reviewer', action='model.promoted', correlation_id=model.id, payload={'evidence': evidence}))
+    with factory.begin() as db:
+        result = reconcile_labels(db, 'active', actor='audit-reviewer', review_reference='controlled-test-review')
+        assert result['changed'] and not result['approvals_changed'] and not result['registry_status_changed']
+        assert db.get(m.ModelVersion, 'active').status == 'ACTIVE'
+        assert not reconcile_labels(db, 'active', actor='audit-reviewer', review_reference='controlled-test-review')['changed']
+    with factory() as db:
+        events = db.scalars(select(m.AuditEvent).where(m.AuditEvent.action == 'model.legacy_labels_reconciled')).all()
+        assert len(events) == 1 and events[0].payload['original_labels']['activation_allowed'] is False
+
+
+def test_reconciliation_cannot_promote_unapproved_registered_model(store):
+    import pytest
+    from app.modules.governance.reconciliation import reconcile_labels
+    factory, at = store
+    with factory.begin() as db:
+        with pytest.raises(ValueError):
+            reconcile_labels(db, 'challenger', actor='reviewer', review_reference='test-review')
+        assert db.get(m.ModelVersion, 'challenger').status == 'CHALLENGER'

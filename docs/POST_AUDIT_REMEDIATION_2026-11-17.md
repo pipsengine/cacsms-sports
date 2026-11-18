@@ -17,7 +17,7 @@ access boundary before exposure outside a trusted environment.
 | Check | Before | After |
 |---|---|---|
 | PostgreSQL | Read-only connection confirmed, `0015` | `0017` applied by normal development startup |
-| Regression suite | 264 passed, 19 PostgreSQL tests skipped without test URL | 329 passed, none skipped, including disposable PostgreSQL |
+| Regression suite | 264 passed, 19 PostgreSQL tests skipped without test URL | 331 API tests plus 32 repository tests passed; none skipped; includes disposable PostgreSQL |
 | Migration lifecycle | Existing audit evidence only | Fresh install, downgrade to `0010`, upgrade to head tested on disposable PostgreSQL |
 | Frontend | Type check/build passed; 743.66 kB main JS chunk | Type check/build passed; 422.71 kB main JS chunk; route chunks; no size warning |
 | UI inventory | Attachment said 30 | Actual navigation contains 29 pages; all covered by the Playwright harness |
@@ -39,7 +39,7 @@ audit is distinct from an audit of installed host packages.
 | D-03 booking readiness shadowing | Existing delegation retained | Regression tested |
 | D-04 duplicate main routes | Existing fix retained; all method/path pairs now checked | Tested |
 | D-05 workflow stage list | Canonical twelve stages retained | Tested |
-| D-06 legacy model labels | Read-only reconciliation review identifies inconsistencies; no approvals or models rewritten | Implemented; actual corrections pending review |
+| D-06 legacy model labels | Reviewed and audited correction of one legacy artifact; registry status and approval flags preserved | Fixed/tested |
 | D-07 duplicate learning summary | Removed redundant declaration and route-test exemption | Fixed/tested |
 | D-08 empty evaluation endpoint | Returns persisted, paginated per-model history, actual metrics and explicit unavailable fields | Fixed/tested |
 | D-09 CDN/capture permission coupling | Separate `SPORTS_BROWSER_SUBRESOURCE_HOSTS`; does not grant navigation permission | Fixed/tested |
@@ -126,10 +126,12 @@ calibration and approval metadata.
 
 Registry status, current approval flags, computed deployment eligibility and actual
 deployment verification are separate response fields. Deployment status is explicitly
-UNVERIFIED where no deployment evidence exists. Reconciliation creates review proposals
-only. A cosmetic correction requires review of original promotion evidence and an
-append-only audit event retaining the original labels; missing approvals must go through
-the existing server-computed promotion gate. No model is activated by this report.
+UNVERIFIED where no deployment evidence exists. The read API creates review proposals only. The explicit reconciliation CLI rechecks
+current validation and matching original promotion audit evidence under a row lock,
+and preserves original labels in a new audit event. One previously approved ACTIVE
+model received this reviewed cosmetic correction; its registry status and four approval
+flags did not change. See [the governance verification](MODEL_GOVERNANCE_VERIFICATION_2026-11-18.md).
+Missing approvals must go through the existing promotion gate. No model was activated.
 
 ## Autonomous workflow and operational monitoring
 
@@ -138,7 +140,9 @@ durable jobs, worker leases, transactional outbox, retries and restart recovery 
 retained and exercised in PostgreSQL tests. Research and prediction precede market
 evaluation. Lack of prices produces `NO_FRESH_MARKET` and does not terminate the
 independent background tasks. Ticket preparation and programme allocation recheck
-source/classification eligibility even for earlier qualified records.
+source/classification eligibility even for earlier qualified records. Ticket preparation
+also rechecks current model status and all four approval flags, so revocation after
+qualification blocks a new ticket.
 
 The local stack was restarted after verification. The scheduler resumed, processed
 nine runs, reported no cycle errors and correctly waited for fresh markets and
@@ -166,7 +170,9 @@ splitting has a real loading state. The UI harness visits the actual navigation,
 classification requests, records JavaScript/API failures and captures the market page
 at 390, 768, 1280 and 1920 pixels.
 
-The harness is not a complete test of every tab, filter, modal, authentication flow,
+The additional interaction harness passed 124 available tab interactions and verified
+loading and network-failure states for the new panel. These checks are not a complete
+test of every filter, modal, authentication flow,
 error state and ticket lifecycle at every viewport. Existing dedicated workflow/UI
 scripts and backend ticket/settlement tests remain available; expanding that complete
 cross-product is pending work, rather than a claimed acceptance result.
@@ -200,13 +206,15 @@ databases verified downgrade/upgrade; no live schema downgrade was performed.
 
 - **Blocked externally:** an authorized, sufficiently frequent provider covering the
   actual upcoming fixtures/markets; BetExplorer requires verified written permission.
-- **Pending review:** legacy model label reconciliation proposals and source profile
-  coverage/licensing references for any new provider. No automatic activation occurs.
+- **Pending review:** source profile coverage/licensing references for any new provider.
+  The identified legacy model labels have been reconciled against original promotion
+  evidence with an append-only audit record. No automatic activation occurred.
 - **Pending production operations:** isolated installed-environment audit, deployment
   access controls, external metrics/alerting, archival retention policy, sustained
   scheduler soak and multi-host failover exercise.
 - **Pending QA expansion:** complete UI state/action coverage beyond the documented
-  navigation, rendering, price classification and market responsiveness checks.
+  navigation, rendering, 124 tab interactions, loading/network failure, price classification
+  and market responsiveness checks.
 
 The source ZIP, commits, migration files, API inventory, automated tests, saved test
 logs, live evidence, dependency audit JSON and screenshots distinguish delivered

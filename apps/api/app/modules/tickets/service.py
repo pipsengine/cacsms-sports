@@ -19,6 +19,10 @@ def validate_leg(db,qualification_id,at=None):
     if not p or not o:raise TicketRejected('MISSING_FORECAST_OR_PRICE')
     if p.fixture_id!=o.fixture_id or p.market_key!=o.market_key or p.outcome_key!=o.outcome_key:
         raise TicketRejected('MARKET_MAPPING_MISMATCH')
+    from app.modules.prediction.prospective import REQUIRED_APPROVALS
+    model=db.get(m.ModelVersion,p.model_id)
+    if model is None or model.status!='ACTIVE' or not all((model.validation or {}).get(key) is True for key in REQUIRED_APPROVALS):
+        raise TicketRejected('MODEL_NOT_ACTIVE_APPROVED')
     fixture=db.get(m.Fixture,p.fixture_id)
     if fixture is None or utc(fixture.kickoff_at)<=at:raise TicketRejected('FIXTURE_STARTED_OR_MISSING')
     observed=o.observed_at

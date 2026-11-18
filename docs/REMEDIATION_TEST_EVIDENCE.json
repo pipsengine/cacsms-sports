@@ -1,0 +1,194 @@
+{
+  "implementation_commit": "0dd8bea",
+  "backend": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "331",
+    "time": "116.014",
+    "timestamp": "2026-11-18T03:24:28.485085+01:00",
+    "hostname": "AdminCenter"
+  },
+  "ui": {
+    "pages": [
+      {
+        "route": "dashboard",
+        "status": "PASS"
+      },
+      {
+        "route": "command-centre",
+        "status": "PASS"
+      },
+      {
+        "route": "live-operations",
+        "status": "PASS"
+      },
+      {
+        "route": "fixtures",
+        "status": "PASS"
+      },
+      {
+        "route": "statistics",
+        "status": "PASS"
+      },
+      {
+        "route": "research",
+        "status": "PASS"
+      },
+      {
+        "route": "match-analysis",
+        "status": "PASS"
+      },
+      {
+        "route": "predictions",
+        "status": "PASS"
+      },
+      {
+        "route": "markets",
+        "status": "PASS"
+      },
+      {
+        "route": "qualification",
+        "status": "PASS"
+      },
+      {
+        "route": "opportunities",
+        "status": "PASS"
+      },
+      {
+        "route": "programmes/accumulator",
+        "status": "PASS"
+      },
+      {
+        "route": "programmes/singles",
+        "status": "PASS"
+      },
+      {
+        "route": "programmes/jackpot",
+        "status": "PASS"
+      },
+      {
+        "route": "programmes/draws",
+        "status": "PASS"
+      },
+      {
+        "route": "programmes/rollover",
+        "status": "PASS"
+      },
+      {
+        "route": "tickets",
+        "status": "PASS"
+      },
+      {
+        "route": "betslip",
+        "status": "PASS"
+      },
+      {
+        "route": "booking-codes",
+        "status": "PASS"
+      },
+      {
+        "route": "results",
+        "status": "PASS"
+      },
+      {
+        "route": "performance",
+        "status": "PASS"
+      },
+      {
+        "route": "models",
+        "status": "PASS"
+      },
+      {
+        "route": "orchestrator",
+        "status": "PASS"
+      },
+      {
+        "route": "sources",
+        "status": "PASS"
+      },
+      {
+        "route": "browser",
+        "status": "PASS"
+      },
+      {
+        "route": "diagnostics",
+        "status": "PASS"
+      },
+      {
+        "route": "settings",
+        "status": "PASS"
+      },
+      {
+        "route": "security",
+        "status": "PASS"
+      },
+      {
+        "route": "audit",
+        "status": "PASS"
+      }
+    ],
+    "javascript_errors": [],
+    "api_errors": [],
+    "responsive": [
+      {
+        "width": 390,
+        "document_width": 390,
+        "status": "PASS"
+      },
+      {
+        "width": 768,
+        "document_width": 768,
+        "status": "PASS"
+      },
+      {
+        "width": 1280,
+        "document_width": 1280,
+        "status": "PASS"
+      },
+      {
+        "width": 1920,
+        "document_width": 1920,
+        "status": "PASS"
+      }
+    ]
+  },
+  "ui_interactions": {
+    "tabs": 124,
+    "failures": [],
+    "states": [
+      {
+        "state": "LOADING",
+        "status": "PASS"
+      },
+      {
+        "state": "NETWORK_FAILURE",
+        "status": "PASS"
+      }
+    ],
+    "javascript_errors": []
+  },
+  "api_paths": 201,
+  "api_operations": 203,
+  "migration": "0017",
+  "npm_vulnerabilities": 0,
+  "resolved_python_requirements_vulnerabilities": 0,
+  "operational_mode": "PAPER",
+  "production_ready": false,
+  "limits": [
+    "No authorized fresh upcoming price coverage",
+    "Shared development Python environment requires isolated deployment audit",
+    "Full production failover, monitoring deployment, retention and complete UI action cross-product remain unverified"
+  ],
+  "repository_tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "32",
+    "time": "2.273",
+    "timestamp": "2026-11-18T03:24:22.895369+01:00",
+    "hostname": "AdminCenter"
+  }
+}
