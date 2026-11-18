@@ -188,6 +188,69 @@ class AcquisitionJob(Base):
  error_code:Mapped[str|None]=mapped_column(String(80))
  observation_id:Mapped[str|None]=mapped_column(ForeignKey('sources.observations.id'))
 
+
+class DiscoveryCompetition(Base):
+ __tablename__='discovery_competitions';__table_args__=(UniqueConstraint('source_id','provider_key','season_label',name='discovery_competition_identity'),{'schema':'sources'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ provider_key:Mapped[str]=mapped_column(String(160))
+ season_label:Mapped[str]=mapped_column(String(100))
+ competition_id:Mapped[str]=mapped_column(ForeignKey('sports.competitions.id'),index=True)
+ season_id:Mapped[str|None]=mapped_column(ForeignKey('sports.competition_seasons.id'))
+ name:Mapped[str]=mapped_column(String(200))
+ active:Mapped[bool]=mapped_column(Boolean,default=True)
+ last_seen_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ source_url:Mapped[str]=mapped_column(Text)
+ details:Mapped[dict]=mapped_column(JSON,default=dict)
+
+
+class FixtureDiscoveryJob(Base):
+ __tablename__='fixture_discovery_jobs';__table_args__=(UniqueConstraint('idempotency_key',name='fixture_discovery_job_identity'),Index('ix_fixture_discovery_due','status','next_run_at','priority'),{'schema':'operations'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ kind:Mapped[str]=mapped_column(String(30))
+ priority:Mapped[int]=mapped_column(Integer,default=50)
+ idempotency_key:Mapped[str]=mapped_column(String(64))
+ request:Mapped[dict]=mapped_column(JSON)
+ status:Mapped[str]=mapped_column(String(30),default='QUEUED')
+ attempts:Mapped[int]=mapped_column(Integer,default=0)
+ owner:Mapped[str|None]=mapped_column(String(36))
+ lease_until:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ heartbeat_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ next_run_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ finished_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+ error:Mapped[str|None]=mapped_column(Text)
+ result:Mapped[dict]=mapped_column(JSON,default=dict)
+
+
+class FixtureCandidate(Base):
+ __tablename__='fixture_candidates';__table_args__=(UniqueConstraint('source_id','provider_fixture_id','content_hash',name='fixture_candidate_identity'),Index('ix_fixture_candidates_state','status','collected_at'),{'schema':'sources'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ job_id:Mapped[str]=mapped_column(ForeignKey('operations.fixture_discovery_jobs.id'))
+ provider_fixture_id:Mapped[str]=mapped_column(String(180))
+ fixture_id:Mapped[str|None]=mapped_column(ForeignKey('fixtures.fixtures.id'),index=True)
+ content_hash:Mapped[str]=mapped_column(String(64))
+ parser_version:Mapped[str]=mapped_column(String(40))
+ collected_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+ status:Mapped[str]=mapped_column(String(30))
+ reasons:Mapped[list]=mapped_column(JSON,default=list)
+ data:Mapped[dict]=mapped_column(JSON)
+
+
+class FixtureSourceMapping(Base):
+ __tablename__='fixture_source_mappings';__table_args__=(UniqueConstraint('source_id','provider_fixture_id',name='fixture_source_identity'),{'schema':'sources'})
+ id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+ source_id:Mapped[str]=mapped_column(ForeignKey('sources.providers.id'))
+ provider_fixture_id:Mapped[str]=mapped_column(String(180))
+ fixture_id:Mapped[str]=mapped_column(ForeignKey('fixtures.fixtures.id'),index=True)
+ candidate_id:Mapped[str]=mapped_column(ForeignKey('sources.fixture_candidates.id'))
+ job_id:Mapped[str]=mapped_column(ForeignKey('operations.fixture_discovery_jobs.id'))
+ signature:Mapped[str]=mapped_column(String(64))
+ state:Mapped[str]=mapped_column(String(30),default='EXTRACTED')
+ last_seen_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+
 class StrategyRun(Base):
  __tablename__='runs';__table_args__=(UniqueConstraint('programme_key','idempotency_key',name='strategy_run_unique'),{'schema':'strategies'})
  id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)

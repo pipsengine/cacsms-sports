@@ -63,6 +63,8 @@ def fetch_csv(url):
  """Football-Data CSV download, restricted to its published HTTPS host; returns (rows, last_modified)."""
  import httpx
  for _ in range(3):
+  from app.modules.acquisition.source_policy import assert_permitted
+  assert_permitted(url)
   p=urlparse(url)
   if p.scheme!='https' or p.hostname not in FD_HOSTS or p.username or p.password or p.port not in (None,443):raise ValueError('Unexpected Football-Data URL')
   with httpx.Client(timeout=20,follow_redirects=False,trust_env=False,headers={'User-Agent':os.getenv('SPORTS_OPENLIGADB_USER_AGENT','CACSMS-Sports/1.0 (autonomous research)')}) as client:
@@ -425,6 +427,9 @@ def collect(factory,at=None):
  if not enabled():return {'enabled':False,'errors':[]}
  report={'enabled':True,'errors':[]}
  with factory.begin() as db:ensure_source(db)
+ with factory() as db:
+  source=db.get(m.Source,FD_SOURCE_ID)
+  research_source_allowed=bool(source and source.enabled and source.permission=='AUTHORIZED')
  for name,every,job in (('history',timedelta(minutes=5),lambda:refresh_history(factory,at=at)),
                         ('results',timedelta(minutes=1),lambda:corroborate_results(factory,at=at)),
                         ('evidence',EVIDENCE_REFRESH,lambda:produce_evidence(factory,at=at)),
@@ -438,6 +443,8 @@ def collect(factory,at=None):
                         ('rollover',timedelta(minutes=5),lambda:__import__('app.modules.strategies.programme_engine',fromlist=['cycle']).cycle(factory,'rollover',at=at)),
                         ('ticket-builder',timedelta(minutes=1),lambda:__import__('app.modules.tickets.builder',fromlist=['cycle']).cycle(factory,at=at)),
                         ('market-benchmark',timedelta(minutes=30),lambda:__import__('app.modules.markets.intelligence',fromlist=['refresh_benchmark']).refresh_benchmark(factory,at=at))):
+  if not research_source_allowed and name in ('history','results','evidence','odds','market-archive','market-benchmark'):
+   report[name]={'status':'SOURCE_NOT_AUTHORIZED','errors':[]};continue
   schedule_key='open-intel:schedule:'+name
   if not due(factory,schedule_key,every,at):
    if name=='odds':
@@ -453,6 +460,9 @@ def collect(factory,at=None):
   except Exception as exc:
    report['errors'].append({'step':name,'code':type(exc).__name__,'detail':str(exc)[:160]})
  try:
+  if not research_source_allowed:
+   report['modelling']={'status':'SOURCE_NOT_AUTHORIZED'};report['market_model']={'status':'SOURCE_NOT_AUTHORIZED'}
+   return report
   from app.modules.autonomy.modelling import train_if_due,train_market_model_if_due
   report['modelling']=train_if_due(factory,at=at)
   report['market_model']=train_market_model_if_due(factory,at=at)

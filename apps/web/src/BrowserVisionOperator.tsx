@@ -56,21 +56,21 @@ export default function BrowserVisionOperator(){
  ];
 
  return <div className="dmr bvo">
-  {document.getElementById('deep-runtime-badge')&&createPortal(<span className={'dmr-runtime-badge '+(online?'online':'')}><Bot size={23}/>Autonomous Mode: {online?'ON':o?'OFF':'Checking'}<i/></span>,document.getElementById('deep-runtime-badge')!)}
+  {document.getElementById('deep-runtime-badge')&&createPortal(<span className={'dmr-runtime-badge '+(online?'online':'')}><Bot size={23}/>Controller: {online?'Online':o?'Offline':'Checking'}<i/></span>,document.getElementById('deep-runtime-badge')!)}
 
   <div className="dmr-header bvo-header">
    <div className="dmr-intro">
     <div className="dmr-eyebrow">ENGINE OPERATIONS</div>
-    <div className="bvo-title-line"><h2>Browser &amp; Vision Operator</h2><span className={'bvo-mode '+(online?'on':'')}><Bot size={15}/>{o?online?'Autonomous':'Controller offline':'Connecting'}</span></div>
-    <p>Autonomous authorized browsing, screenshot evidence and computer-vision readiness — self-running, no manual initiation.</p>
+    <div className="bvo-title-line"><h2>Browser &amp; Vision Operator</h2><span className="bvo-mode"><Bot size={15}/>{o?'Manual capture':'Connecting'}</span></div>
+    <p>Authorized browser capture is administrator initiated. No autonomous browser collection is currently dispatched.</p>
    </div>
    <div className="dmr-kpis bvo-kpis">{kpis.map(k=><div className={k.tone} key={k.t}><k.icon/><span>{k.t}</span><b>{ov.loading&&!o?'…':k.v}</b><small className="mi-kpi-sub">{k.s}</small></div>)}</div>
   </div>
 
   <section className="dmr-pipeline bvo-pipeline">
-   <div className="dmr-pipeline-title"><Bot/><div><strong>Autonomous Capture Pipeline</strong><small>{o?`${n(o.runtime.cycles)} controller cycles · ${n(o.kpis.authorized_sources)} authorized sources · capture only when allowlisted`:'Loading autonomous pipeline…'}</small></div></div>
+   <div className="dmr-pipeline-title"><Bot/><div><strong>Capture Pipeline</strong><small>{o?`${n(o.runtime.cycles)} controller cycles · ${n(o.kpis.authorized_sources)} authorized sources · administrator-initiated capture only`:'Loading capture pipeline…'}</small></div></div>
    <div className="dmr-steps">{(o&&o.pipeline.length)?o.pipeline.map((step,i,all)=><React.Fragment key={step.key}><div className="dmr-step" title={step.status}><span className={step.status==='DONE'?'dmr-done':'dmr-wait'}>{step.status==='DONE'?<CheckCircle2/>:<Clock3/>}</span><b>{step.name}</b></div>{i<all.length-1&&<span className="bvo-pipe-sep" aria-hidden="true"/>}</React.Fragment>):['Discover','Authorize','Browse','Capture','Analyse','Verify'].map(name=><div className="dmr-step" key={name}><span className="dmr-wait"><Loader2/></span><b>{name}</b></div>)}</div>
-   <div className="dmr-cycle"><span className={'dmr-mode '+(online?'online':'')}><RefreshCcw size={16}/>{online?'Running':o?words(o.runtime.status):'Connecting'}</span><small>{o?.runtime.next_run_at?'Next run: '+clock(o.runtime.next_run_at):'Updates automatically'}</small></div>
+   <div className="dmr-cycle"><span className="dmr-mode"><RefreshCcw size={16}/>Browser scheduler not configured</span><small>Controller status is separate from browser capture.</small></div>
   </section>
 
   {errors.length>0&&<div className="dmr-error" role="alert"><AlertTriangle size={16}/>Backend unavailable: {errors.join('; ')}. No capture states have been simulated.</div>}
@@ -97,7 +97,7 @@ export default function BrowserVisionOperator(){
      <label>Season<select aria-label="Season" value={s.season} disabled={!s.league} onChange={e=>change('season',e.target.value)}><option value="">All seasons</option>{(seasons.data||[]).map(x=><option key={x.id||x.name} value={x.id||x.name}>{x.label||x.name}</option>)}</select></label>
      <label>As of (local time)<input type="datetime-local" value={s.asOf} onChange={e=>change('asOf',e.target.value)}/></label>
     </div>
-    <p className="bvo-filter-note">Catalogue filters only narrow inspection context. Browser capture is gated by server-side authorization, host allowlist and the autonomous controller — not by this form.</p>
+    <p className="bvo-filter-note">Catalogue filters only narrow inspection context. Administrator-initiated browser capture is gated by server-side authorization and the host allowlist — not by this form.</p>
    </details>
   </section>
 

@@ -1,7 +1,51 @@
-# Fully autonomous operation (no human input)
+# Autonomous operation and current limitations
 
-With `SPORTS_OPENLIGADB_ENABLED=1`, the autonomy cycle (every 5 s, `app.modules.acquisition.dev_scheduler` locally or Celery beat)
-now runs the whole pre-match chain unattended for the Bundesliga:
+The autonomous controller runs locally using `app.modules.acquisition.dev_scheduler`, or in Docker using Celery
+beat and the acquisition worker. With `SPORTS_FIXTURE_DISCOVERY_ENABLED=1`, `SPORTS_OPENLIGADB_ENABLED=1` and
+`SPORTS_THESPORTSDB_ENABLED=1`, the existing durable queue can collect fixture data from both APIs independently.
+TheSportsDB's public key `123` is for development; the application rejects it in production. Provider coverage is
+limited, and an extracted fixture is not independently verified until two authorized sources agree. OpenLigaDB
+requires attribution and compliance with its [ODbL licence](https://www.openligadb.de/en/license) and
+[API terms](https://www.openligadb.de/en/terms-of-use); TheSportsDB's
+[terms](https://www.thesportsdb.com/docs_terms_of_use.php) apply to its API and prohibit scraping its website.
+TheSportsDB documents a free-tier limit of 30 requests per minute. Configure a meaningful OpenLigaDB user agent
+including a way to contact the operator.
+
+TheSportsDB fixture discovery requests football, basketball, ice hockey, tennis and table tennis. Availability
+depends on the provider and API tier; a sport is shown in the catalogue only when actual data is available.
+The fixture page also displays configured discovery targets without registered competitions, labelled as targets
+rather than acquired sports; these are not selectable until a competition has been discovered.
+Ice hockey, tennis and table tennis events without two named participants, a kickoff time or a supported status
+are rejected rather than fabricated. An
+empty response does not imply the sport or competition is completely covered. Existing football-specific
+standings, research and prediction logic is not automatically supported for the other sports.
+
+The target research requirements include match history, team statistics, form at 5/10/20 matches with
+home/away splits, head-to-head, standings, formations, lineups, player statistics, injuries and suspensions,
+team news, tactical and advanced statistics, schedule context, market intelligence, weather/venue and
+multi-season trends. The existing dossier has sections for standings, form, head-to-head, news, lineups,
+injuries and match statistics, and the market pipeline accepts separately sourced odds. These sections do not
+guarantee every requested field or window. Fixture discovery does not acquire the full research requirements,
+and absent data must remain missing or unavailable rather than being inferred as fact. OpenLigaDB's
+football history path and existing evidence gates do not establish complete global or multi-sport coverage.
+
+The browser capture endpoint is **administrator initiated**, not an autonomous browser worker. It records
+screenshots for authorized, allowlisted sources, but does not discover competition links or extract fixtures.
+Screenshot capture is not vision verification. Do not treat controller activity or API fixture acquisition as
+evidence that browser navigation, vision interpretation or prediction succeeded.
+Completed manual navigations record their HTTP status, page title, duration and screenshot hash in the capture
+audit event. Non-2xx responses and missing navigation responses are failures, even when a screenshot was saved;
+failed captures cannot be sent for vision interpretation. Navigation errors before a screenshot is available
+are recorded as failures without a screenshot.
+
+The table below describes the historical OpenLigaDB/Football-Data pipeline; it is not a claim that the full
+pipeline is currently operating. Football-Data.co.uk is prohibited for this autonomous application without
+written consent. With durable fixture discovery enabled, the older OpenLigaDB collector is not run by the
+controller. Durable discovery now derives a provisional Bundesliga table from its existing OpenLigaDB season
+response, without additional provider requests. It rejects malformed final scores and duplicate fixtures, and
+does not publish a ranking when no completed matches are available. The table is not an official or independently
+verified standings snapshot, does not cover basketball or every competition, and shows a warning after 24 hours.
+The general controller's online status does not establish that a standings source exists for a selected league.
 
 | Step | Module | Cadence | Rule |
 |---|---|---|---|
@@ -43,5 +87,5 @@ Enforcement (`app/modules/acquisition/source_policy.py`):
 - Source Intelligence → *Source registry & sync* (`GET /api/v1/sports/sources/registry`) and Browser & Vision Operator readiness show the restriction.
 - Only a recorded express written consent lifts it: `SPORTS_SOURCE_CONSENT=betexplorer.com=<consent reference>`.
 
-Authorized alternative in use: OpenLigaDB + Football-Data.co.uk (above). These are structured, permitted feeds, so no
-browser automation is needed for acquisition.
+The configured development fallback is OpenLigaDB and TheSportsDB, subject to their respective terms and coverage.
+These structured APIs supplement rather than implement or replace the missing autonomous browser workflow.

@@ -96,6 +96,33 @@ def test_existing_worker_collects_only_due_sources(factory):
     assert service.collect(factory,forbidden,at+timedelta(seconds=1))['processed']==0
 
 
+def test_health_does_not_advertise_disabled_legacy_collector_schedule(factory,monkeypatch):
+    cid=register(factory)
+    next_check=datetime.now(timezone.utc)+timedelta(hours=1)
+    with factory.begin() as db:
+        state=service.resolve_state(db,'eng-e0')
+        db.add(m.ProviderSyncState(id='openligadb:bl1:2026',source_id=state.source_id,
+                                  payload={'competition_id':cid},next_check_at=next_check,failures=0))
+        state.next_check_at=None
+    monkeypatch.setattr(routes,'SessionLocal',factory)
+    app=FastAPI();app.include_router(routes.router);client=TestClient(app)
+    monkeypatch.setenv('SPORTS_FIXTURE_DISCOVERY_ENABLED','1')
+    assert client.get('/api/v1/sports/standings/health',params={'competition_id':cid}).json()['next_sync'] is None
+    monkeypatch.setenv('SPORTS_FIXTURE_DISCOVERY_ENABLED','0')
+    assert client.get('/api/v1/sports/standings/health',params={'competition_id':cid}).json()['next_sync'] is not None
+
+
+def test_non_football_analytics_do_not_present_football_goals(factory,monkeypatch):
+    with factory.begin() as db:
+        sport=m.Sport(name='Basketball');db.add(sport);db.flush()
+        comp=m.Competition(sport_id=sport.id,name='Basketball league');db.add(comp);db.flush();cid=comp.id
+    monkeypatch.setattr(routes,'SessionLocal',factory)
+    app=FastAPI();app.include_router(routes.router)
+    data=TestClient(app).get('/api/v1/sports/standings/analytics',params={'competition_id':cid}).json()
+    assert data['average_goals'] is None and data['home_win_pct'] is None
+    assert 'unavailable for this sport' in data['note']
+
+
 def test_api_uses_existing_admin_and_canonical_data(factory,monkeypatch):
     monkeypatch.setattr(routes,'SessionLocal',factory)
     monkeypatch.setenv('SPORTS_ADMIN_TOKEN','test-secret')

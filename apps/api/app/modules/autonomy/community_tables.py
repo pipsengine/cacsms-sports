@@ -2,9 +2,10 @@
 
 These caches never create verified results, reviewed snapshots or prediction inputs.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from app.db import models as m
+from app.modules.research.league import utc
 
 
 def build_tables(matches, at):
@@ -52,6 +53,61 @@ def build_tables(matches, at):
     return result
 
 
+def cache_discovery_table(db, profile, matches, at):
+    """Cache a provisional Bundesliga table from a complete discovery response."""
+    from app.modules.autonomy import openligadb
+    if not matches:
+        raise ValueError('EMPTY_STANDINGS_FEED')
+    normalized, _, _ = openligadb.normalize(matches, at)
+    if len({match['matchID'] for match in matches}) != len(matches):
+        raise ValueError('DUPLICATE_STANDINGS_MATCH_ID')
+    identities = {(row['kickoff'], row['home'].strip().casefold(), row['away'].strip().casefold()) for row in normalized}
+    if len(identities) != len(normalized):
+        raise ValueError('DUPLICATE_STANDINGS_FIXTURE')
+    for match, row in zip(matches, normalized):
+        if type(match.get('matchIsFinished')) is not bool:
+            raise ValueError('INVALID_STANDINGS_MATCH_STATUS')
+        if not match['matchIsFinished']:
+            continue
+        if datetime.fromisoformat(row['kickoff']) > at:
+            raise ValueError('FUTURE_FINISHED_STANDINGS_MATCH')
+        results = match.get('matchResults')
+        if not isinstance(results, list):
+            raise ValueError('INVALID_STANDINGS_FINAL_SCORE')
+        finals = [r for r in results if isinstance(r, dict) and r.get('resultTypeKind') == 'After90Minutes']
+        if len(finals) != 1 or any(type(finals[0].get(k)) is not int or finals[0][k] < 0 for k in ('pointsTeam1', 'pointsTeam2')):
+            raise ValueError('INVALID_STANDINGS_FINAL_SCORE')
+    dates = [datetime.fromisoformat(row['kickoff']).date() for row in normalized]
+    season = db.get(m.CompetitionSeason, profile.season_id) if profile.season_id else None
+    if season is None:
+        season = db.scalar(select(m.CompetitionSeason).where(m.CompetitionSeason.competition_id == profile.competition_id,
+                                                              m.CompetitionSeason.label == profile.season_label))
+    if season is None:
+        season = m.CompetitionSeason(competition_id=profile.competition_id, label=profile.season_label,
+                  start_date=min(dates), end_date=max(dates), is_current=min(dates) <= at.date() <= max(dates))
+        db.add(season); db.flush()
+    else:
+        season.start_date = min(season.start_date, min(dates))
+        season.end_date = max(season.end_date, max(dates))
+    profile.season_id = season.id
+    tables = build_tables(matches, at)
+    if not tables['_statistics']['matches']:
+        tables = {}
+    provider_season = profile.details.get('provider_season', profile.season_label)
+    cache_id = 'openligadb:bl1:' + provider_season
+    cache = db.get(m.ProviderSyncState, cache_id)
+    if cache is None:
+        cache = m.ProviderSyncState(id=cache_id, source_id=openligadb.SOURCE_ID, payload={}, failures=0)
+        db.add(cache)
+    cache.last_full_at = at
+    cache.next_check_at = None
+    cache.failures = 0
+    cache.payload = {'fixtures': len(matches), 'attribution': openligadb.ATTRIBUTION, 'licence_url': openligadb.LICENCE,
+                     'table_version': 2, 'community_tables': tables, 'competition_id': profile.competition_id,
+                     'season_id': season.id, 'standings_url': openligadb.BASE + '/getmatchdata/bl1/' + provider_season}
+    return 'UPDATED' if tables else 'NO_COMPLETED_MATCHES'
+
+
 def report(db, competition_id, season_id, cutoff, scope):
     if not season_id:
         return None
@@ -66,8 +122,9 @@ def report(db, competition_id, season_id, cutoff, scope):
         if not rows:
             continue
         source=db.get(m.Source,cache.source_id)
+        stale = utc(cutoff) - utc(cache.last_full_at) > timedelta(hours=24)
         return dict(mode='community_computed',scope=scope,season_id=season_id,as_of=cutoff,rows=rows,
-            warning='Community-source research table, not independently verified or official. Uses 3/1/0 points, goal difference and goals scored; deductions and competition-specific tie-breakers are excluded.',
+            warning=('Source data is over 24 hours old. ' if stale else '') + 'Community-source research table, not independently verified or official. Uses 3/1/0 points, goal difference and goals scored; deductions and competition-specific tie-breakers are excluded.',
             source=dict(id=source.id,name=source.name,official=False,captured_at=cache.last_full_at,verified_at=None,
                         source_url=payload['standings_url'],source_reference=cache.id,licence_url=payload.get('licence_url'),
                         attribution=payload.get('attribution')),next_check_at=cache.next_check_at,community_statistics=payload.get('community_tables',{}).get('_statistics'))

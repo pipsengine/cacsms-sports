@@ -79,7 +79,13 @@ def cycle(factory=SessionLocal,fetcher=None):
  event_ids=[];event_fixtures=set();global_event=False;target_ids=set();processed_ids=set();failed_ids=set();plan={}
  try:
   from app.modules.autonomy.openligadb import collect as collect_open_data
-  report['open_data']=collect_open_data(factory)
+  from app.modules.autonomy.fixture_discovery import enabled as fixture_discovery_enabled,collect as collect_fixtures
+  if fixture_discovery_enabled():
+   try:report['fixture_discovery']=collect_fixtures(factory)
+   except Exception as exc:report['fixture_discovery']={'errors':[{'code':type(exc).__name__,'detail':str(exc)[:200]}]}
+   report['errors'].extend(report['fixture_discovery'].get('errors',[]))
+   report['open_data']={'enabled':True,'status':'DURABLE_DISCOVERY_QUEUE','errors':[]}
+  else:report['open_data']=collect_open_data(factory)
   report['errors'].extend(report['open_data']['errors'])
   from app.modules.standings.service import collect as collect_standings
   report['standings']=collect_standings(factory)

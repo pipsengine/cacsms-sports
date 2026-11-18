@@ -60,6 +60,18 @@ def test_seasons_and_top_two_share_verified_scores(store):
     with pytest.raises(LookupError):catalog.standings(store,'missing',None,NOW)
 
 
+def test_standings_analytics_trend_respects_result_verification_cutoff(store,monkeypatch):
+    from fastapi import FastAPI
+    from app.modules.standings import routes as standings_routes
+    monkeypatch.setattr(standings_routes,'SessionLocal',sessionmaker(bind=store.bind))
+    app=FastAPI();app.include_router(standings_routes.router);client=TestClient(app)
+    params={'competition_id':'league','season':'current'}
+    data=client.get('/api/v1/sports/standings/analytics',params={**params,'as_of':NOW.isoformat()}).json()
+    assert data['sample_size']==1 and data['goals_by_date']==[{'day':'2026-10-18','value':2.0}]
+    before=client.get('/api/v1/sports/standings/analytics',params={**params,'as_of':(NOW-timedelta(days=2,hours=-1)).isoformat()}).json()
+    assert before['sample_size']==0 and before['goals_by_date']==[]
+
+
 def test_historical_correction_does_not_leak_or_resurrect(store):
     store.add(m.Result(id='correction',fixture_id='f',version=2,verified_at=NOW+timedelta(days=1),outcome={'status':'FINAL'}))
     store.commit()

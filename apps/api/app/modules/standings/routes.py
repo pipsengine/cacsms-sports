@@ -119,20 +119,29 @@ def top_two(competition_id:str,season:str|None=None,as_of:datetime|None=None):
 def analytics(competition_id:str,season:str|None=None,as_of:datetime|None=None):
     def load(db):
         comp,sid,r=table_report(db,competition_id,season,'overall',as_of)
+        sport=db.get(m.Sport,comp.sport_id)
+        if sport.name.casefold()!='football':
+            return {'competition_id':comp.id,'season':sid,'classification':r['mode'],'sample_size':0,'average_goals':None,
+                    'home_win_pct':None,'draw_pct':None,'away_win_pct':None,'goals_by_matchday':None,'goals_by_date':[],
+                    'note':'Football-specific goal and draw analytics are unavailable for this sport.'}
         stats=r.get('community_statistics')
         if stats:
             n=stats['matches'];h=stats['home_wins'];a=stats['away_wins'];d=stats['draws']
             matches=sum(row['played'] for row in r['rows'])/2
             average=sum(row['goals_for'] for row in r['rows'])/matches if matches else None
+            trends=stats.get('goals_trend',[])
         else:
             cutoff=catalog.cutoff_time(as_of)
             from app.modules.research.league import verified_matches
             games=verified_matches(db,comp.id,cutoff,season_id=sid);n=len(games)
             h=sum(g['home_score']>g['away_score'] for g in games);a=sum(g['home_score']<g['away_score'] for g in games);d=n-h-a
             average=sum(g['home_score']+g['away_score'] for g in games)/n if n else None
+            dates={}
+            for game in games:dates.setdefault(game['kickoff'].date().isoformat(),[]).append(game['home_score']+game['away_score'])
+            trends=[{'day':day,'value':sum(scores)/len(scores)} for day,scores in sorted(dates.items())[-5:]]
         return {'competition_id':comp.id,'season':sid,'classification':r['mode'],'sample_size':n,'average_goals':round(average,3) if average is not None else None,
                 'home_win_pct':round(h*100/n,2) if n else None,'draw_pct':round(d*100/n,2) if n else None,'away_win_pct':round(a*100/n,2) if n else None,
-                'goals_by_matchday':None,'goals_by_date':stats.get('goals_trend',[]) if stats else [],'note':'A date trend is not a matchday trend; reliable round identifiers are unavailable.'}
+                'goals_by_matchday':None,'goals_by_date':trends,'note':'A date trend is not a matchday trend; reliable round identifiers are unavailable.'}
     return read(load)
 
 
@@ -157,8 +166,11 @@ def health(competition_id:str):
         states=list(db.scalars(select(m.ProviderSyncState).where(m.ProviderSyncState.payload['competition_id'].as_string()==comp.id)))
         authorized=[s for s in states if (source:=db.get(m.Source,s.source_id)) and source.enabled and source.permission=='AUTHORIZED']
         success=[s for s in authorized if s.last_full_at]
-        nexts=[s.next_check_at for s in authorized if s.next_check_at]
-        return {'engine':'standings','status':'DATA_AVAILABLE' if success else 'WAITING_FOR_DATA','source_count':len(states),'authorized_sources':len(authorized),
+        from app.modules.autonomy.fixture_discovery import enabled as discovery_enabled
+        nexts=[s.next_check_at for s in authorized if s.next_check_at and not (discovery_enabled() and s.id.startswith('openligadb:'))]
+        failures=sum(s.failures or 0 for s in authorized)
+        errors=[s.payload['table_error'] for s in authorized if (s.payload or {}).get('table_error')]
+        return {'engine':'standings','status':'FAILED' if failures else 'DATA_AVAILABLE' if success else 'WAITING_FOR_DATA','source_count':len(states),'authorized_sources':len(authorized),
                 'last_successful_sync':max((s.last_full_at for s in success),default=None),'next_sync':min(nexts,default=None),
-                'source_online':None,'data_quality_score':None,'failures':sum(s.failures for s in authorized),'note':'Source authorization and recorded syncs do not prove current reachability or data quality.'}
+                'source_online':None,'data_quality_score':None,'failures':failures,'errors':errors,'note':'Source authorization and recorded syncs do not prove current reachability or data quality.'}
     return read(load)

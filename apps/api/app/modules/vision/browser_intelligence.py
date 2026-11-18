@@ -54,13 +54,13 @@ def overview(db,at=None):
  evidence_root=bool(os.getenv('SPORTS_EVIDENCE_ROOT'))
  has_auth=len(authorized)>0
  has_capture=len(captured)>0
- has_browse=hosts and has_auth
+ has_browse=has_capture
  pipeline=[{'key':step.lower(),'name':step,'status':'DONE' if (
   step=='Discover' or
   (step=='Authorize' and has_auth) or
   (step=='Browse' and has_browse) or
   (step=='Capture' and has_capture) or
-  (step=='Analyse' and vision_ok and has_capture) or
+  (step=='Analyse' and any(c.vision_status in ('EXTRACTED_UNVERIFIED','PARTIALLY_VERIFIED','VERIFIED') for c in captures)) or
   (step=='Verify' and len(vision_verified)>0)
  ) else 'PENDING'} for step in PIPELINE]
  pct=round(100*len(vision_verified)/len(captured),1) if captured else 0
@@ -70,10 +70,11 @@ def overview(db,at=None):
   {'name':'Capture service','status':'READY' if evidence_root or has_capture else 'WAITING','detail':'Evidence root or stored captures'},
   {'name':'Vision model','status':'CONFIGURED' if vision_ok else 'NOT_CONFIGURED','detail':'Provider env present' if vision_ok else 'Inference provider not configured'},
   {'name':'Evidence store','status':'READY' if evidence_root or any(c.evidence_hash for c in captures) else 'WAITING','detail':'Hashes persisted when captures succeed'},
-  {'name':'Scheduler','status':'ACTIVE' if runtime.get('worker_online') else 'OFFLINE','detail':runtime.get('status') or 'NOT_STARTED'},
+  {'name':'Browser scheduler','status':'NOT_CONFIGURED','detail':'No autonomous browser jobs are dispatched; captures require an administrator'},
+  {'name':'Autonomous controller','status':'ACTIVE' if runtime.get('worker_online') else 'OFFLINE','detail':runtime.get('status') or 'NOT_STARTED'},
  ]
  return {
-  'mode':'PAPER','autonomous':True,'updated_at':_stamp(at),
+  'mode':'PAPER','autonomous':False,'updated_at':_stamp(at),
   'runtime':{
    'worker_online':bool(runtime.get('worker_online')),
    'status':runtime.get('status'),
@@ -102,7 +103,7 @@ def overview(db,at=None):
    'verification_policy':'INDEPENDENT_REVIEW_REQUIRED',
    'prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES',
    'restricted_sources':restricted,
-   'autonomous_acquisition':'OpenLigaDB API + Football-Data.co.uk CSV (structured; browser not required)',
+   'autonomous_acquisition':'Fixture discovery uses configured authorized feeds; browser capture is administrator initiated',
   },
   'health':health_checks,
   'boundaries':[
@@ -118,7 +119,7 @@ def overview(db,at=None):
    'terms_url':r.get('terms_url'),'last_sync':_stamp(r.get('last_sync')),'next_sync':_stamp(r.get('next_sync')),
   } for r in sources],
   'recent':sessions(db,12),
-  'notice':'Browser capture runs only for allowlisted, authorized HTTPS origins. Screenshots are not vision-verified research. Prohibited hosts are refused. PAPER mode — no live wagers.',
+  'notice':'Browser capture is administrator initiated and only runs for allowlisted, authorized HTTPS origins. Screenshots are not vision-verified research. Prohibited hosts are refused. PAPER mode — no live wagers.',
  }
 
 
@@ -131,5 +132,5 @@ def summary(db):
   'vision_verified':snap['kpis']['vision_verified'],
   'vision_provider':'CONFIGURED_NOT_CLAIMED' if snap['readiness']['vision_configured'] else 'NOT_CONFIGURED',
   'recent':snap['recent'][:10],
-  'autonomous':True,
+  'autonomous':False,
  }

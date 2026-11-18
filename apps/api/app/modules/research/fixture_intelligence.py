@@ -4,7 +4,7 @@ Every figure is counted from persisted records. Nothing is estimated, seeded or 
 HTTP availability: fixtures without prices, forecasts or pipeline runs are reported as such.
 """
 from datetime import datetime,timedelta,timezone
-from fastapi import APIRouter,HTTPException,Query
+from fastapi import APIRouter,HTTPException,Query,Header
 from sqlalchemy import select,func,and_,or_
 from sqlalchemy.exc import SQLAlchemyError
 from app.db import models as m
@@ -16,7 +16,7 @@ router=APIRouter(prefix='/api/v1/sports/fixture-intelligence',tags=['Fixtures & 
 LIVE={'LIVE','IN_PLAY','IN-PLAY','INPLAY','HALFTIME','HT','1H','2H','ET','PEN'}
 FINISHED={'FINAL','FINISHED','COMPLETED','FT','AET','AP'}
 CANCELLED={'CANCELLED','CANCELED','ABANDONED','POSTPONED'}
-STATUSES=('upcoming','live','completed','all')
+STATUSES=('upcoming','live','completed','postponed','cancelled','all')
 NAMES=dict((key,name) for key,name,_ in STAGES)
 ENGINES=(('discover','Competition Discovery & Mapping'),('acquire','Fixtures & Evidence Collection'),('research','Match Research & Enrichment'),
          ('analyse','Data Validation & Feature Quality'),('predict','Prediction Engine'),('monitor','Continuous Monitoring'))
@@ -33,7 +33,8 @@ def _scope(query,*,sport=None,country=None,competition_id=None,season_id=None):
 def _window(status,at,hours):
  end=at+timedelta(hours=hours);start=at-timedelta(hours=hours)
  upper=func.upper(func.coalesce(m.Fixture.status,''))
- if status=='live':return upper.in_(LIVE)
+ if status=='live':return and_(upper.in_(LIVE),m.Fixture.kickoff_at>=at-timedelta(hours=8),m.Fixture.kickoff_at<=at+timedelta(minutes=30))
+ if status in ('postponed','cancelled'):return and_(m.Fixture.kickoff_at>=start,m.Fixture.kickoff_at<=end,upper.in_({'POSTPONED'} if status=='postponed' else {'CANCELLED','CANCELED','ABANDONED'}))
  if status=='completed':
   done=select(m.Result.fixture_id).where(m.Result.fixture_id==m.Fixture.id).exists()
   return and_(m.Fixture.kickoff_at>=start,m.Fixture.kickoff_at<at,or_(upper.in_(FINISHED),done))
@@ -59,6 +60,12 @@ def _pipeline(stages):
 def _rows(db,fixtures,at):
  ids=[f.id for f,_,_ in fixtures]
  if not ids:return []
+ from app.modules.autonomy.fixture_status import verified_query
+ verified=set(db.scalars(verified_query(at).where(m.FixtureSourceMapping.fixture_id.in_(ids))))
+ provenance={}
+ for link,candidate,source in db.execute(select(m.FixtureSourceMapping,m.FixtureCandidate,m.Source).join(m.FixtureCandidate,m.FixtureCandidate.id==m.FixtureSourceMapping.candidate_id).join(m.Source,m.Source.id==m.FixtureSourceMapping.source_id).where(m.FixtureSourceMapping.fixture_id.in_(ids))):
+  normalized=(candidate.data or {}).get('normalized',{})
+  provenance.setdefault(link.fixture_id,[]).append({'provider':source.name,'provider_fixture_id':link.provider_fixture_id,'permission':source.permission,'state':link.state,'last_seen_at':link.last_seen_at,'candidate_id':candidate.id,'job_id':link.job_id,'source_url':normalized.get('source_url'),'venue':normalized.get('venue')})
  quotes={}
  for quote in db.scalars(select(m.Odds).where(m.Odds.fixture_id.in_(ids),m.Odds.observed_at<=at).order_by(m.Odds.observed_at.desc())):
   quotes.setdefault(quote.fixture_id,{}).setdefault((quote.bookmaker,quote.market_key,quote.outcome_key),quote)
@@ -82,7 +89,11 @@ def _rows(db,fixtures,at):
   observed=max((utc(q.observed_at) for q in latest),default=None)
   prediction=forecasts.get(fixture.id);run=runs.get(fixture.id);result=results.get(fixture.id)
   markets=sorted({q.market_key for q in latest})
-  rows.append({'id':fixture.id,'kickoff_at':fixture.kickoff_at,'home':fixture.home_name,'away':fixture.away_name,
+  from zoneinfo import ZoneInfo
+  evidence=provenance.get(fixture.id,[])
+  rows.append({'id':fixture.id,'kickoff_at':fixture.kickoff_at,'kickoff_utc':utc(fixture.kickoff_at),'kickoff_lagos':utc(fixture.kickoff_at).astimezone(ZoneInfo('Africa/Lagos')),
+   'verification':'VERIFIED' if fixture.id in verified else 'CONFLICT' if any(x['state']=='CONFLICT' for x in evidence) else 'EXTRACTED' if evidence else 'LEGACY_UNASSESSED',
+   'source_evidence':evidence,'venue':next((e['venue'] for e in evidence if e['venue']),None),'home':fixture.home_name,'away':fixture.away_name,
    'home_team_id':fixture.home_team_id,'away_team_id':fixture.away_team_id,'status':fixture.status,
    'competition':{'id':competition.id,'name':competition.name,'country':competition.country},'sport':sport.name,
    'market_focus':prediction.market_key if prediction else (markets[0] if markets else None),
@@ -107,6 +118,8 @@ def overview(db,*,at=None,hours=72,sport=None,country=None,competition_id=None,s
           'fixtures_window':db.scalar(_joined(func.count()).where(upcoming)) or 0,
           'live_fixtures':db.scalar(_joined(func.count()).where(_window('live',at,hours))) or 0,
           'window_hours':hours}
+ metrics['fixtures_total']=db.scalar(select(func.count()).select_from(m.Fixture)) or 0
+ metrics['observations_total']=db.scalar(select(func.count()).select_from(m.Observation)) or 0
  window_count=func.count(m.Fixture.id).filter(upcoming)
  sports=[{'id':i,'name':n,'competitions':c,'fixtures_window':w} for i,n,c,w in db.execute(
   select(m.Sport.id,m.Sport.name,func.count(func.distinct(m.Competition.id)),window_count).select_from(m.Sport)
@@ -118,6 +131,12 @@ def overview(db,*,at=None,hours=72,sport=None,country=None,competition_id=None,s
  if country:competition_query=competition_query.where(m.Competition.country==country)
  competitions=[{'id':i,'name':n,'country':c,'sport':s,'fixtures_window':w,'fixtures_total':t} for i,n,c,s,w,t in db.execute(
   competition_query.group_by(m.Competition.id,m.Competition.name,m.Competition.country,m.Sport.name).order_by(window_count.desc(),m.Competition.name).limit(300))]
+ profile_details={}
+ for profile in db.scalars(select(m.DiscoveryCompetition).order_by(m.DiscoveryCompetition.last_seen_at.desc())):
+  detail=profile_details.setdefault(profile.competition_id,{'seasons':[],'division':None,'last_seen_at':profile.last_seen_at})
+  if profile.season_label not in detail['seasons']:detail['seasons'].append(profile.season_label)
+  if detail['division'] is None:detail['division']=profile.details.get('division')
+ for competition in competitions:competition.update(profile_details.get(competition['id'],{}))
  country_query=(select(m.Competition.country,func.count(func.distinct(m.Competition.id)),window_count).select_from(m.Competition)
   .join(m.Sport,m.Sport.id==m.Competition.sport_id).outerjoin(m.Fixture,m.Fixture.competition_id==m.Competition.id).where(m.Competition.country.is_not(None)))
  if sport:country_query=country_query.where(m.Sport.name==sport)
@@ -157,16 +176,22 @@ def overview(db,*,at=None,hours=72,sport=None,country=None,competition_id=None,s
  engines=[]
  for key,label in ENGINES:
   stage=by_key[key]
-  state='OFFLINE' if not runtime.get('worker_online') else 'ACTIVE' if stage['settled'] else 'BLOCKED' if stage['blocked'] else 'WAITING' if stage['total'] else 'IDLE'
+  state='OFFLINE' if not runtime.get('worker_online') else 'RUNNING' if stage['counts'].get('RUNNING') else 'BLOCKED' if stage['blocked'] else 'WAITING' if stage['waiting'] else 'COMPLETED' if stage['settled'] else 'IDLE'
   engines.append({'stage':key,'name':label,'state':state,'detail':f"{stage['settled']}/{stage['total']} settled" if stage['total'] else 'No runs in scope'})
  automation={'runtime':runtime,'engines':engines,'interval_seconds':runtime.get('interval_seconds'),'authorized_sources':sources,'acquisition_jobs':jobs}
+ from app.modules.autonomy.fixture_status import summary
+ discovery=summary(db,at)
+ metrics['verified_fixtures']=discovery['verified_fixtures']
+ automation['discovery']=discovery
+ for index,item in enumerate(discovery['engines']):
+  automation['engines'][index]={'stage':('discover','acquire')[index],'name':item['name'],'state':item['state'],'detail':', '.join(f'{count} {state.lower()}' for state,count in item['counts'].items()) or 'No discovery jobs recorded'}
  return {'updated_at':at,'mode':'PAPER','scope':{**scope,'status':status,'hours':hours},'metrics':metrics,'sports':sports,'competitions':competitions,
          'countries':countries,'fixtures':{'total':total,'page':page,'page_size':page_size,'pages':max(1,-(-total//page_size)),'rows':_rows(db,fixtures,at)},
          'pipeline':pipeline,'coverage':coverage,'activity':activity,'automation':automation}
 
 
 @router.get('/overview')
-def fixture_overview(hours:int=Query(72,ge=1,le=168),sport:str|None=None,country:str|None=None,competition_id:str|None=None,season_id:str|None=None,
+def fixture_overview(hours:int=Query(72,ge=1,le=720),sport:str|None=None,country:str|None=None,competition_id:str|None=None,season_id:str|None=None,
                      status:str='upcoming',page:int=Query(1,ge=1),page_size:int=Query(10,ge=1,le=50)):
  try:
   with SessionLocal() as db:
@@ -174,3 +199,40 @@ def fixture_overview(hours:int=Query(72,ge=1,le=168),sport:str|None=None,country
                    status=status.lower(),page=page,page_size=page_size)
  except ValueError as exc:raise HTTPException(422,str(exc)) from exc
  except SQLAlchemyError as exc:raise HTTPException(503,'Fixture database unavailable or migrations missing') from exc
+
+
+@router.get('/discovery')
+def discovery_health():
+ from app.modules.autonomy.fixture_status import summary
+ with SessionLocal() as db:return summary(db)
+
+
+@router.get('/jobs')
+def discovery_jobs(status:str|None=None,limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0)):
+ with SessionLocal() as db:
+  query=select(m.FixtureDiscoveryJob).order_by(m.FixtureDiscoveryJob.created_at.desc(),m.FixtureDiscoveryJob.id)
+  if status:query=query.where(m.FixtureDiscoveryJob.status==status.upper())
+  return {'jobs':[{c.name:getattr(row,c.name) for c in row.__table__.columns} for row in db.scalars(query.offset(offset).limit(limit))], 'limit':limit,'offset':offset}
+
+
+@router.get('/candidates')
+def discovery_candidates(status:str|None=None,limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0)):
+ with SessionLocal() as db:
+  query=select(m.FixtureCandidate).order_by(m.FixtureCandidate.collected_at.desc(),m.FixtureCandidate.id)
+  if status:query=query.where(m.FixtureCandidate.status==status.upper())
+  return {'candidates':[{c.name:getattr(row,c.name) for c in row.__table__.columns} for row in db.scalars(query.offset(offset).limit(limit))], 'limit':limit,'offset':offset}
+
+
+@router.post('/jobs/{job_id}/retry')
+def retry_discovery_job(job_id:str,x_admin_token:str|None=Header(None)):
+ from app.modules.pipeline.routes import admin_guard
+ from app.modules.autonomy.fixture_discovery import authorized
+ admin_guard(x_admin_token)
+ with SessionLocal.begin() as db:
+  job=db.scalar(select(m.FixtureDiscoveryJob).where(m.FixtureDiscoveryJob.id==job_id).with_for_update())
+  if job is None:raise HTTPException(404,'Unknown discovery job')
+  if not authorized(db,job.source_id):raise HTTPException(409,'Source is not authorized')
+  if job.status not in ('DEAD','RETRY_SCHEDULED','BLOCKED'):raise HTTPException(409,'Only failed, retrying or blocked jobs may be retried')
+  db.add(m.AuditEvent(actor='admin',action='fixture_discovery.retry_requested',correlation_id=job.id,payload={'previous_status':job.status,'previous_error':job.error,'previous_attempts':job.attempts}))
+  job.status='QUEUED';job.owner=None;job.lease_until=None;job.attempts=0;job.next_run_at=datetime.now(timezone.utc)
+  return {'id':job.id,'status':job.status,'mode':'PAPER'}

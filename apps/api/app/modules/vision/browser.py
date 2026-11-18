@@ -1,5 +1,5 @@
 """Authorized browser capture. Capture is evidence, not computer-vision interpretation."""
-import asyncio,os
+import asyncio,os,time
 from pathlib import Path
 from urllib.parse import urljoin
 from app.modules.vision.security import validate_destination
@@ -45,7 +45,9 @@ async def capture(url:str,fixture_id:str,approved_hosts:list[str],evidence_root:
             subresources=[host.strip() for host in os.getenv('SPORTS_BROWSER_SUBRESOURCE_HOSTS','').split(',') if host.strip()]
             await context.route('**/*',lambda route:guard_route(route,approved_hosts,subresources))
             page=await context.new_page()
-            await page.goto(url,wait_until='domcontentloaded',timeout=20000)
+            started=time.monotonic()
+            response=await page.goto(url,wait_until='domcontentloaded',timeout=20000)
+            duration_ms=round((time.monotonic()-started)*1000)
             # Defence in depth: never record evidence from a page that ended up outside the approved hosts.
             validate_destination(page.url,approved_hosts)
             image=await page.screenshot(full_page=False,timeout=10000)
@@ -53,6 +55,11 @@ async def capture(url:str,fixture_id:str,approved_hosts:list[str],evidence_root:
             root=Path(evidence_root).resolve();root.mkdir(parents=True,exist_ok=True)
             file=root/(record['sha256']+'.png');file.write_bytes(image)
             record['storage_key']=file.name
+            status=response.status if response is not None else None
+            error='NAVIGATION_NO_RESPONSE' if status is None else f'HTTP_{status}' if not 200<=status<300 else None
+            record.update(http_status=status,page_title=await page.title(),navigation_duration_ms=duration_ms,
+                          capture_status='FAILED' if error else 'CAPTURED',error=error)
+            if error:record['vision_status']='NOT_PERFORMED'
             await context.close()
             return record
         finally:await browser.close()

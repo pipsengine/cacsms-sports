@@ -44,12 +44,12 @@ async def capture_admin(item:CaptureRequest,x_admin_token:str|None=Header(defaul
   db.add(session);db.commit();db.refresh(session);sid=session.id
  try:
   result=await capture(item.url,item.fixture_id,approved,os.getenv('SPORTS_EVIDENCE_ROOT','/tmp/cacsms-evidence'))
-  status='CAPTURED';error=None
+  status=result['capture_status'];error=result['error']
  except Exception as exc:
   result={};status='FAILED';error=str(exc)[:500]
  with SessionLocal.begin() as db:
   row=db.get(m.BrowserCapture,sid);row.status=status;row.evidence_hash=result.get('sha256');row.vision_status=result.get('vision_status','NOT_PERFORMED');row.error=error
-  db.add(m.AuditEvent(actor='admin',action='browser.capture',correlation_id=sid,payload={'status':status,'source_id':item.source_id,'hash':result.get('sha256')}))
+  db.add(m.AuditEvent(actor='admin',action='browser.capture',correlation_id=sid,payload={'status':status,'source_id':item.source_id,'url':item.url,'hash':result.get('sha256'),'http_status':result.get('http_status'),'page_title':result.get('page_title'),'navigation_duration_ms':result.get('navigation_duration_ms'),'error':error}))
  return {'id':sid,'status':status,'evidence':result,'error':error,'vision_verified':False}
 
 
@@ -58,7 +58,7 @@ def browser_readiness():
  configured=all(os.getenv(k) for k in ('SPORTS_VISION_ENDPOINT','SPORTS_VISION_API_KEY','SPORTS_VISION_MODEL','SPORTS_VISION_ALLOWED_HOSTS'))
  from app.modules.acquisition.source_policy import PROHIBITED,prohibition
  restricted='; '.join(f"{e['name']} ({d}): {e['reason']}" for d,e in PROHIBITED.items() if prohibition(d)) or 'None'
- return {'restricted_sources':restricted,'autonomous_acquisition':'OpenLigaDB API + Football-Data.co.uk CSV (structured, permitted; no browser needed)','mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_CLAIMED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
+ return {'restricted_sources':restricted,'autonomous_acquisition':'Fixture discovery uses configured authorized feeds; browser capture is administrator initiated','browser_scheduler':'NOT_CONFIGURED','mode':'PAPER','vision_configured':configured,'browser_hosts_configured':bool(os.getenv('SPORTS_BROWSER_ALLOWED_HOSTS')),'evidence_root_configured':bool(os.getenv('SPORTS_EVIDENCE_ROOT')),'inference_status':'CONFIGURED_NOT_CLAIMED' if configured else 'NOT_CONFIGURED','verification_policy':'INDEPENDENT_REVIEW_REQUIRED','prediction_pipeline':'BLOCKED_UNTIL_APPROVED_MODEL_AND_FEATURES'}
 
 
 @router.post('/admin/browser/{capture_id}/infer')

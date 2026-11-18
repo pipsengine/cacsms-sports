@@ -12,6 +12,13 @@ from sqlalchemy import select,func
 from app.db import models as m
 
 PROHIBITED={
+ 'football-data.co.uk':{
+  'name':'Football-Data.co.uk (open data)','operator':'Football-Data.co.uk',
+  'terms_url':'https://football-data.co.uk/data.php','checked_at':'2026-11-18',
+  'reason':'Published usage restriction excludes commercial or data training products using automated bots, scrapers or AI; written authorization is required for this autonomous AI application',
+  'clauses':['Private-individual use only; automated bots/scrapers/AI and commercial or data-training products excluded'],
+  'robots':'Public download availability does not grant permission for this use',
+  'alternative':'OpenLigaDB ODbL API; TheSportsDB documented development API or a separately licensed production feed'},
  'betexplorer.com':{
   'name':'BetExplorer','operator':'Livesport s.r.o.','terms_url':'https://www.betexplorer.com/terms-of-service.php','checked_at':'2026-11-16',
   'reason':'Terms of Service prohibit scraping, aggregation, database extraction and automated requests without express written consent',
@@ -19,7 +26,7 @@ PROHIBITED={
              '"no extraction (copying) or exploitation ... of the Database Content or of a qualitatively or quantitatively substantial part thereof is permitted without our express consent"',
              '"You must not burden our server on which the Website is hosted with automated requests"'],
   'robots':'robots.txt additionally disallows /bookmaker/, /redirect/ and ?year=, ?page=, ?match=, ?stage= style URLs',
-  'alternative':'OpenLigaDB (ODbL API) and Football-Data.co.uk (published CSVs) via autonomy/open_intelligence'},
+  'alternative':'OpenLigaDB ODbL API and TheSportsDB documented development API'},
 }
 
 
@@ -48,6 +55,7 @@ def assert_permitted(url):
 
 def source_id_for(domain):
  from uuid import uuid5,NAMESPACE_URL
+ if domain=='football-data.co.uk':return str(uuid5(NAMESPACE_URL,'https://football-data.co.uk/'))
  return str(uuid5(NAMESPACE_URL,'prohibited-source:'+domain))
 
 

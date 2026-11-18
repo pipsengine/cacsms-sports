@@ -341,6 +341,10 @@ def analyse(db,run,at):
 # 05 Predict ---------------------------------------------------------------------------
 
 def predict(db,run,at):
+ from app.modules.autonomy.fixture_status import verified_query
+ mapped=db.scalar(select(m.FixtureSourceMapping.id).where(m.FixtureSourceMapping.fixture_id==run.fixture_id).limit(1))
+ if mapped and not db.scalar(verified_query(at).where(m.FixtureSourceMapping.fixture_id==run.fixture_id)):
+  raise Waiting('Fixture identity needs matching fresh evidence from two authorized providers',code='FIXTURE_IDENTITY_NOT_VERIFIED')
  latest=db.scalar(select(m.Research).where(m.Research.fixture_id==run.fixture_id,m.Research.status=='VERIFIED').order_by(m.Research.version.desc()).limit(1))
  report=infer_approved(db,db.get(m.Fixture,run.fixture_id),now=at,dossier_id=latest.id if latest else None)
  from app.modules.prediction.market_model import infer as infer_markets
