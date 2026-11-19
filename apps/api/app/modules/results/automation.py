@@ -12,7 +12,8 @@ def validate_result_observation(observation, source, fixture):
         raise ValueError('Fixture/source mismatch')
     if not observation.observed_at or observation.observed_at.tzinfo is None:
         raise ValueError('Evidence timestamp missing timezone')
-    if observation.observed_at < fixture.kickoff_at:
+    kickoff = fixture.kickoff_at if fixture.kickoff_at.tzinfo else fixture.kickoff_at.replace(tzinfo=timezone.utc)  # stored as UTC
+    if observation.observed_at < kickoff:
         raise ValueError('Final result evidence precedes kickoff')
     if observation.observed_at > datetime.now(timezone.utc):
         raise ValueError('Future result observation')

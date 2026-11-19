@@ -171,7 +171,8 @@ def autonomous_quorum(db):
  for sid,entry in registry(db).items():policy.setdefault(sid,entry)
  from app.modules.autonomy.window_corroboration import registry as window_registry,enabled as window_enabled
  if window_enabled():
-  for sid,entry in window_registry(db).items():policy.setdefault(sid,entry)
+  # Window entries replace the discovery-bridge entry for the same provider (bridge samples never count toward quorum).
+  for sid,entry in window_registry(db).items():policy[sid]=entry
  return policy
 
 

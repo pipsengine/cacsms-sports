@@ -152,7 +152,13 @@ Enforcement (`app/modules/acquisition/source_policy.py`):
 The configured development fallback is OpenLigaDB and TheSportsDB, subject to their respective terms and coverage.
 These structured APIs supplement rather than implement or replace the missing autonomous browser workflow.
 
-## League-window corroboration (API-Football + consent-gated BetExplorer)
+## League-window corroboration (football-data.org, API-Football, paid TheSportsDB, consent-gated BetExplorer)
+
+Any two enabled providers whose computations are identical verify a section; a disagreeing third provider is named
+in the readiness note and emits nothing. **football-data.org** registers when `SPORTS_FOOTBALL_DATA_ORG_KEY` is set
+(free tier: PL, ELC, PD, SA, FL1, DED, PPL, BSA; requests spaced 7 s). **TheSportsDB** takes part only with a paid
+`SPORTS_THESPORTSDB_KEY`; the public key truncates seasons and is never used, and the key never appears in stored URLs.
+Competition names with a season suffix (e.g. "Premier League 2026/2027") map to their league.
 
 `app/modules/autonomy/window_corroboration.py` verifies `recent_form`, `match_statistics` and `head_to_head` for
 mapped leagues (Belgian Pro League, Premier League, Championship, La Liga, Serie A, Ligue 1, Eredivisie, Scottish

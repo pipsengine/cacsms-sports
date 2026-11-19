@@ -128,8 +128,10 @@ def test_agreeing_complete_windows_verify_research_sections(store, monkeypatch):
     with store.begin() as db:
         assert db.get(m.Source, wc.BE_ID).permission == 'AUTHORIZED'
         assert db.scalar(select(m.AuditEvent).where(m.AuditEvent.action == 'source.consent_recorded')).payload['consent_reference'] == 'TEST-LICENCE-001'
-        derived = db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-cercle')).all()
-        assert {(o.source_id, o.payload['section']) for o in derived} == {(s, x) for s in wc.GROUPS for x in wc.SECTIONS}
+        derived = db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-cercle')
+                             .order_by(m.Observation.observed_at.desc())).all()
+        assert {(o.source_id, o.payload['section']) for o in derived} == {(s, x) for s in (wc.APIF_ID, wc.BE_ID) for x in wc.SECTIONS}
+        # Cycle 1 corroborated this season only; the latest evidence also covers last season (the research stage uses it).
         form = next(o for o in derived if o.payload['section'] == 'recent_form').payload['data']
         assert form['home_last5'] == 'WLLDW' and form['away_last5'] == 'DDLWW'
         h2h = next(o for o in derived if o.payload['section'] == 'head_to_head').payload['data']
@@ -181,3 +183,65 @@ def test_models_forecast_only_competitions_they_were_validated_on(store):
         db.add_all([legacy, scoped]); db.flush()
         assert competitions_for(db, legacy) == set(), 'legacy models are Bundesliga-only (absent here)'
         assert not in_scope(db, legacy, fixture.competition_id) and in_scope(db, scoped, fixture.competition_id)
+
+
+FDORG_NAMES = {'Cercle Brugge': 'Cercle Brugge KSV', 'Westerlo': 'KVC Westerlo', 'Club Brugge': 'Club Brugge KV',
+               'Union Saint-Gilloise': 'Royale Union Saint-Gilloise', 'Genk': 'KRC Genk', 'Gent': 'KAA Gent', 'Anderlecht': 'RSC Anderlecht'}
+
+
+def fdorg_payload(rows, season):
+    matches = [{'id': season * 1000 + i, 'utcDate': d + 'T18:45:00Z', 'status': 'FINISHED',
+                'homeTeam': {'name': FDORG_NAMES[h]}, 'awayTeam': {'name': FDORG_NAMES[a]},
+                'score': {'duration': 'REGULAR', 'fullTime': {'home': hg, 'away': ag}}} for i, (d, h, a, hg, ag) in enumerate(rows)]
+    matches.append({'id': season * 1000 + 998, 'utcDate': '2026-11-22T15:00:00Z', 'status': 'TIMED',
+                    'homeTeam': {'name': 'KRC Genk'}, 'awayTeam': {'name': 'KAA Gent'}, 'score': {'fullTime': {'home': None, 'away': None}}})
+    matches.append({'id': season * 1000 + 999, 'utcDate': '2026-10-01T18:45:00Z', 'status': 'FINISHED',
+                    'homeTeam': {'name': 'KRC Genk'}, 'awayTeam': {'name': 'KAA Gent'},
+                    'score': {'duration': 'PENALTY_SHOOTOUT', 'fullTime': {'home': 4, 'away': 3}}})
+    return {'matches': matches}
+
+
+def test_footballdata_parser_keeps_only_finished_regulation_results():
+    rows = wc.parse_footballdata(fdorg_payload(CURRENT, 2026), 2026, AT)
+    assert len(rows) == len(CURRENT) and rows[0]['home'] == 'Cercle Brugge KSV' and rows[0]['kickoff'].startswith('2026-08-02T18:45')
+    with pytest.raises(wc.ProviderError, match='PARSER_SCHEMA_MISMATCH'):
+        wc.parse_footballdata({'message': 'restricted'}, 2026, AT)
+    assert wc.footballdata_url('PL', 2026) == 'https://api.football-data.org/v4/competitions/PL/matches?season=2026'
+
+
+def test_season_suffixed_competition_names_map_to_leagues():
+    comp = lambda name, country: SimpleNamespace(name=name, country=country)
+    assert wc.league_for(comp('Premier League 2026/2027', 'England'))['footballdata'] == 'PL'
+    assert wc.league_for(comp('LaLiga EA Sports 2026/2027', 'Spain'))['footballdata'] == 'PD'
+    assert wc.league_for(comp('Premier League 2026/2027', 'Scotland')) is None
+
+
+def test_two_of_three_providers_verify_and_the_dissenter_is_named(store, monkeypatch):
+    monkeypatch.setenv('SPORTS_FOOTBALL_DATA_ORG_KEY', 'fdkey')
+    monkeypatch.setitem(wc.LEAGUES, ('belgian pro league', 'belgium'),
+                        {**wc.LEAGUES[('belgian pro league', 'belgium')], 'footballdata': 'BJL'})
+    fx, _ = fetchers()
+    # BetExplorer disagrees on one score; football-data.org and API-Football agree.
+    fx['betexplorer'] = lambda url: be_html([(d, h, a, 2, 2) if (d, h) == ('2026-11-01', 'Cercle Brugge') else (d, h, a, hg, ag)
+                                             for d, h, a, hg, ag in (PREVIOUS if '2025-2026' in url else CURRENT)])
+    fx['footballdata'] = lambda code, season: fdorg_payload(CURRENT if season == 2026 else PREVIOUS, season)
+    for minutes in (0, 1, 2):
+        report = wc.collect(store, at=AT + timedelta(minutes=minutes), fetchers=fx)
+    assert report['evidence']['outcomes'] == {'CORROBORATED': 1}
+    with store() as db:
+        sources = {o.source_id for o in db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-cercle'))}
+        assert sources == {wc.FDORG_ID, wc.APIF_ID}
+        note = wc.readiness_note(db, db.get(m.Fixture, 'fx-cercle'))
+        assert 'disagreeing: BetExplorer' in note and 'football-data.org: enabled' in note
+
+
+def test_public_thesportsdb_key_is_never_a_corroboration_provider(store, monkeypatch):
+    monkeypatch.setenv('SPORTS_THESPORTSDB_KEY', '123')
+    with store.begin() as db:
+        db.add(m.Source(id=wc.TSDB_ID, name='TheSportsDB', permission='AUTHORIZED', enabled=True))
+    with store() as db:
+        assert not wc.provider_enabled(db, 'thesportsdb') and wc.TSDB_ID not in wc.registry(db)
+    monkeypatch.setenv('SPORTS_THESPORTSDB_KEY', 'paidkey42')
+    with store() as db:
+        assert wc.provider_enabled(db, 'thesportsdb')
+        assert 'paidkey42' not in wc.sportsdb_reference_url(4338, 2026, False)
