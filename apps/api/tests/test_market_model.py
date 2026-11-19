@@ -52,9 +52,38 @@ def test_validation_approves_real_signal_and_rejects_noise():
     results,_,test,params=mm.validate(synthetic(900),0.08)
     assert test>=mm.MIN_HOLDOUT and results['1X2|HOME']['approved'] and results['1X2|AWAY']['approved']
     assert results['1X2|HOME']['skill']>0.05
-    assert set(params)=={'shrink','platt'}
+    assert {'shrink','platt','direct_selection'}<=set(params)<={'shrink','platt','direct_selection','direct'}
     noise,_,_,_=mm.validate(synthetic(900,signal=False),0.08)
     assert not noise['1X2|HOME']['approved'] and 'DOES_NOT_BEAT_BASELINE_OUT_OF_SAMPLE' in noise['1X2|HOME']['reasons']
+
+
+def test_direct_model_is_chosen_on_training_data_when_poisson_cannot_see_the_signal():
+    """BTTS driven by form (which the Poisson goal rates ignore): the direct model wins the inner split and validates."""
+    rng=random.Random(11);rows=[]
+    for _ in range(900):
+        form=rng.uniform(0,3);f={'home_form':form,'away_form':1.5,'home_scoring_rate':1.5,'away_conceding_rate':1.5,'away_scoring_rate':1.2,'home_conceding_rate':1.2}
+        both=rng.random()<1/(1+math.exp(-2*(form-1.5)))
+        hg=rng.randint(1,3) if both else rng.choice([0,1,2]);ag=rng.randint(1,2) if both else 0
+        rows.append((f,hg,ag))
+    results,_,_,params=mm.validate(rows,0.08)
+    assert 'BTTS' in params['direct'] and results['BTTS|YES']['method']=='direct_logistic'
+    assert results['BTTS|YES']['approved'] and results['BTTS|YES']['skill']>0.1
+    assert params['direct_selection']['BTTS']['inner_log_loss']['direct']<params['direct_selection']['BTTS']['inner_log_loss']['poisson']
+    probs=mm.probabilities(rows[0][0],params)
+    assert abs(probs[('BTTS','YES')]+probs[('BTTS','NO')]-1)<1e-9
+
+
+def test_direct_totals_stay_coherent_and_logistic_fit_recovers_direction():
+    rng=random.Random(3);x=[[rng.gauss(0,1),rng.gauss(0,1)] for _ in range(600)]
+    y=[1 if rng.random()<1/(1+math.exp(-(2*a-b))) else 0 for a,b in x]
+    model=mm.fit_logistic(x,y,1.0)
+    assert model['weights'][1]>1 and model['weights'][2]<-.4
+    f={'home_form':1.5,'away_form':1.5,'home_scoring_rate':1.6,'away_conceding_rate':1.4,'away_scoring_rate':1.1,'home_conceding_rate':1.2}
+    params={'shrink':None,'platt':{},'direct':{'OU_2.5':{'weights':[5.0]+[0.0]*9,'mean':[0.0]*9,'scale':[1.0]*9,'ridge':1.0}}}
+    probs=mm.probabilities(f,params)
+    overs=[probs[(mm.line_key('OU',line),'OVER')] for line in mm.TOTAL_LINES]
+    assert overs==sorted(overs,reverse=True), 'a direct line can never exceed the lower line'
+    assert all(abs(probs[(mm.line_key('OU',l),'OVER')]+probs[(mm.line_key('OU',l),'UNDER')]-1)<1e-9 for l in mm.TOTAL_LINES)
 
 
 @pytest.fixture

@@ -90,6 +90,9 @@ def register_competition(db, source_id, value, at):
     aliases = {'English Premier League': ('Premier League', 'England'), 'German Bundesliga': ('Bundesliga', 'Germany'),
                'Spanish La Liga': ('La Liga', 'Spain'), 'Italian Serie A': ('Serie A', 'Italy'), 'French Ligue 1': ('Ligue 1', 'France')}
     name, country = aliases.get(value['name'], (value['name'], value.get('country')))
+    if not country:
+        from app.modules.autonomy.competition_country import infer_country
+        country = infer_country(name, value['provider_key'])
     competition = db.get(m.Competition, prior.competition_id) if prior else db.scalar(select(m.Competition).where(m.Competition.sport_id == sport.id, m.Competition.name == name))
     if competition is not None and country and competition.country and competition.country != country:
         competition = None  # Equal labels in different countries do not establish identity.
@@ -127,6 +130,8 @@ def plan(db, at):
         if profile.source_id == providers.OL_ID:
             provider_season = profile.details.get('provider_season', profile.season_label)
             if provider_season not in (str(at.year), str(at.year - 1) if at.month < 7 else str(at.year)): continue
+            from app.modules.autonomy.community_tables import quarantine_reason
+            if quarantine_reason('openligadb:' + profile.provider_key + ':' + provider_season): continue
             request = {'kind': 'fixtures', 'profile_id': profile.id, 'shortcut': profile.provider_key, 'season': provider_season}
         elif profile.source_id == providers.SPORTSDB_ID:
             request = {'kind': 'fixtures', 'provider_key': profile.provider_key}
@@ -135,13 +140,68 @@ def plan(db, at):
         live = db.scalar(select(m.Fixture.id).where(m.Fixture.competition_id == profile.competition_id,
                m.Fixture.status.notin_(('FINISHED','CANCELLED','POSTPONED')),m.Fixture.kickoff_at>=at-timedelta(hours=4),m.Fixture.kickoff_at<=at+timedelta(minutes=30)).limit(1))
         interval = 900 if live and profile.source_id==providers.SPORTSDB_ID else 21600
-        if profile.source_id == providers.OL_ID and profile.provider_key == 'bl1':
-            cache = db.get(m.ProviderSyncState, 'openligadb:bl1:' + provider_season)
-            if cache is None or not cache.last_full_at or utc(cache.last_full_at) < at - timedelta(hours=6):
+        priority = 25
+        from app.modules.autonomy.community_tables import SUPPORTED_SHORTCUTS, discovery_cache_id
+        if profile.source_id == providers.OL_ID and profile.provider_key in SUPPORTED_SHORTCUTS:
+            cache = db.get(m.ProviderSyncState, discovery_cache_id(profile.provider_key, provider_season))
+            if cache is None or not cache.last_full_at or utc(cache.last_full_at) < at - timedelta(hours=6) or (cache.payload or {}).get('history_version') != 1:
                 interval = 900
-        enqueue(db, profile.source_id, request, at, interval=interval, priority=25)
+                priority = 20
+        job = enqueue(db, profile.source_id, request, at, interval=interval, priority=priority)
+        if job.status in ('QUEUED', 'RETRY_SCHEDULED'): job.priority = priority
         if live and profile.source_id==providers.OL_ID and profile.details.get('poll_group'):
             enqueue(db,profile.source_id,{**request,'kind':'poll','group':profile.details['poll_group']},at,interval=120,priority=20)
+    if os.getenv('SPORTS_THESPORTSDB_ENABLED', '0') == '1' and authorized(db, providers.SPORTSDB_ID):
+        from app.modules.autonomy.fixture_status import quarantined_fixtures
+        table_profiles = db.scalars(select(m.DiscoveryCompetition)
+            .join(m.Competition, m.Competition.id == m.DiscoveryCompetition.competition_id)
+            .join(m.Sport, m.Sport.id == m.Competition.sport_id)
+            .where(m.DiscoveryCompetition.source_id == providers.SPORTSDB_ID,
+                   m.DiscoveryCompetition.active.is_(True), m.DiscoveryCompetition.season_id.is_not(None),
+                   m.Sport.name == 'Football').order_by(m.DiscoveryCompetition.last_seen_at.desc())).all()
+        for profile in table_profiles:
+            provider_season = profile.details.get('provider_season', profile.season_label)
+            if not profile.provider_key.isdigit() or not re.fullmatch(r'\d{4}(?:-\d{4})?', provider_season):
+                continue
+            enqueue(db, providers.SPORTSDB_ID,
+                    {'kind': 'table', 'profile_id': profile.id, 'provider_key': profile.provider_key, 'season': provider_season},
+                    at, interval=86400, priority=24)
+        history_profile_ids = (select(m.DiscoveryCompetition.id)
+            .join(m.Fixture, (m.Fixture.competition_id == m.DiscoveryCompetition.competition_id) &
+                  (m.Fixture.season_id == m.DiscoveryCompetition.season_id))
+            .join(m.FixtureSourceMapping, m.FixtureSourceMapping.fixture_id == m.Fixture.id)
+            .where(m.DiscoveryCompetition.source_id == providers.SPORTSDB_ID, m.DiscoveryCompetition.active.is_(True),
+                   m.FixtureSourceMapping.source_id == providers.SPORTSDB_ID, m.FixtureSourceMapping.state != 'CONFLICT',
+                   m.Fixture.id.not_in(quarantined_fixtures()), m.Fixture.kickoff_at > at,
+                   m.Fixture.kickoff_at <= at + timedelta(days=horizon()),
+                   m.Fixture.status.notin_(('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED')))
+            .distinct())
+        history_profiles = db.scalars(select(m.DiscoveryCompetition).where(m.DiscoveryCompetition.id.in_(history_profile_ids))).all()
+        for profile in history_profiles:
+            provider_season = profile.details.get('provider_season', profile.season_label)
+            if profile.provider_key.isdigit() and re.fullmatch(r'\d{4}(?:-\d{4})?', provider_season):
+                enqueue(db, providers.SPORTSDB_ID,
+                        {'kind': 'season_history', 'profile_id': profile.id, 'provider_key': profile.provider_key, 'season': provider_season},
+                        at, interval=86400, priority=26)
+        mappings = db.execute(select(m.Fixture, m.FixtureCandidate)
+            .join(m.FixtureSourceMapping, m.FixtureSourceMapping.fixture_id == m.Fixture.id)
+            .join(m.FixtureCandidate, m.FixtureCandidate.id == m.FixtureSourceMapping.candidate_id)
+            .where(m.FixtureSourceMapping.source_id == providers.SPORTSDB_ID,
+                   m.FixtureSourceMapping.state != 'CONFLICT', m.Fixture.kickoff_at > at,
+                   m.Fixture.kickoff_at <= at + timedelta(days=horizon()),
+                   m.Fixture.status.notin_(('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED')))
+            .order_by(m.Fixture.kickoff_at, m.Fixture.id)).all()
+        for fixture, candidate in mappings:
+            data = (candidate.data or {}).get('normalized', {})
+            remaining = utc(fixture.kickoff_at) - at
+            priority = 23 if remaining <= timedelta(days=1) else 24 if remaining <= timedelta(days=3) else 26
+            for side in ('home', 'away'):
+                team_id = str(data.get(side + '_provider_id') or '')
+                if team_id.isdigit():
+                    job = enqueue(db, providers.SPORTSDB_ID,
+                                  {'kind': 'team_recent', 'fixture_id': fixture.id, 'side': side, 'provider_team_id': team_id},
+                                  at, interval=21600, priority=priority)
+                    if job.status in ('QUEUED', 'RETRY_SCHEDULED'): job.priority = priority
     pending=db.scalars(select(m.FixtureDiscoveryJob).where(m.FixtureDiscoveryJob.status.in_(('QUEUED','RETRY_SCHEDULED'))).order_by(m.FixtureDiscoveryJob.created_at.desc())).all()
     seen_requests=set()
     for job in pending:
@@ -163,6 +223,18 @@ def claim(factory, at=None):
         for job in jobs:
             if not authorized(db, job.source_id):
                 job.status = 'BLOCKED'; job.error = 'SOURCE_NOT_AUTHORIZED'; continue
+            if job.source_id == providers.OL_ID and job.kind in ('fixtures', 'poll'):
+                from app.modules.autonomy.community_tables import quarantine_reason
+                reason = quarantine_reason('openligadb:' + str(job.request.get('shortcut')) + ':' + str(job.request.get('season')))
+                if reason:
+                    job.status = 'BLOCKED'; job.error = 'SOURCE_FEED_QUARANTINED: ' + reason; job.finished_at = at
+                    continue
+            if job.kind == 'team_recent':
+                fixture = db.get(m.Fixture, job.request.get('fixture_id'))
+                if fixture is None or utc(fixture.kickoff_at) <= at or (fixture.status or '').upper() in ('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED'):
+                    job.status = 'SUPERSEDED'; job.finished_at = at
+                    job.result = {**job.result, 'reason': 'Fixture is no longer eligible for pre-match research'}
+                    continue
             rate_id = 'fixture-rate:' + job.source_id
             rate = db.scalar(select(m.ProviderSyncState).where(m.ProviderSyncState.id == rate_id).with_for_update())
             if rate is None:
@@ -208,11 +280,19 @@ def persist_fixture(db, job, raw, at):
     if candidate is None:
         # Ignore artwork; preserve the parser input relevant to fixture identity/status.
         safe = {k: v for k, v in raw.items() if not any(word in k.lower() for word in ('icon', 'badge', 'thumb', 'poster', 'fanart', 'banner', 'video'))}
+        for field in ('team1', 'team2'):
+            if isinstance(safe.get(field), dict):
+                safe[field] = {k: v for k, v in safe[field].items()
+                               if not any(word in k.lower() for word in ('icon', 'badge', 'thumb', 'poster', 'fanart', 'banner', 'video'))}
         candidate = m.FixtureCandidate(source_id=source_id, job_id=job.id, provider_fixture_id=identity,
                       content_hash=content_hash, parser_version=providers.PARSER_VERSION, collected_at=at,
                       status='DISCOVERED', reasons=[], data={'raw': safe})
         db.add(candidate); db.flush()
     try:
+        if source_id == providers.OL_ID:
+            from app.modules.autonomy.community_tables import quarantine_reason
+            reason = quarantine_reason('openligadb:' + str(job.request.get('shortcut')) + ':' + str(job.request.get('season')))
+            if reason: raise ValueError('SOURCE_FEED_QUARANTINED: ' + reason)
         value = providers.fixture(source_id, raw, job.request)
         stamp = datetime.fromisoformat(value['kickoff_at']).astimezone(timezone.utc)
         if not isinstance(value['home'], str) or not isinstance(value['away'], str): raise ValueError('INVALID_PARTICIPANTS')
@@ -278,9 +358,199 @@ def persist_fixture(db, job, raw, at):
                 'data': value, 'discovery_candidate_id': candidate.id, 'verification': state}))
         return 'DUPLICATE' if duplicate else state
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        if str(exc).startswith('SOURCE_FEED_QUARANTINED:'):
+            if not duplicate:
+                candidate.status = 'REJECTED'; candidate.reasons = [str(exc)[:300]]
+            return 'QUARANTINED'
         if duplicate: return candidate.status
         candidate.status = 'REJECTED'; candidate.reasons = [str(exc)[:300]]
         return 'REJECTED'
+
+
+def sportsdb_result(raw, sport, at, seen, team_id=None):
+    if not isinstance(raw, dict): raise ValueError('INVALID_EVENT')
+    identity = str(raw.get('idEvent') or '')
+    if not identity.isdigit() or identity in seen: raise ValueError('INVALID_OR_DUPLICATE_EVENT_ID')
+    ids = (str(raw.get('idHomeTeam') or ''), str(raw.get('idAwayTeam') or ''))
+    if team_id and team_id not in ids: raise ValueError('TEAM_ID_MISMATCH')
+    if raw.get('strSport') != sport: raise ValueError('SPORT_MISMATCH')
+    if str(raw.get('strStatus') or '').upper() not in ('FT', 'AET', 'AP', 'AOT', 'MATCH FINISHED'):
+        raise ValueError('FINAL_STATUS_UNAVAILABLE')
+    if str(raw.get('strPostponed') or '').lower() == 'yes': raise ValueError('CONFLICTING_POSTPONED_STATUS')
+    stamp = datetime.fromisoformat(str(raw['strTimestamp']).replace('Z', '+00:00'))
+    if stamp.tzinfo is None: stamp = stamp.replace(tzinfo=timezone.utc)
+    stamp = stamp.astimezone(timezone.utc)
+    if stamp >= at: raise ValueError('EVENT_NOT_BEFORE_CUTOFF')
+    home, away = raw['strHomeTeam'], raw['strAwayTeam']
+    if not isinstance(home, str) or not home.strip() or not isinstance(away, str) or not away.strip() or key(home) == key(away):
+        raise ValueError('INVALID_PARTICIPANTS')
+    scores = [raw.get('intHomeScore'), raw.get('intAwayScore')]
+    if any(not isinstance(s, (str, int)) or isinstance(s, bool) or not str(s).isdigit() for s in scores):
+        raise ValueError('FINAL_SCORE_UNAVAILABLE')
+    seen.add(identity)
+    return {'event_id': identity, 'kickoff_at': stamp.isoformat(), 'home': home, 'away': away,
+            'home_score': int(scores[0]), 'away_score': int(scores[1]), 'competition': raw.get('strLeague')}
+
+
+def persist_team_recent(db, job, records, at):
+    """Keep limited single-source results separate from verified research sections."""
+    request = job.request
+    fixture = db.get(m.Fixture, request['fixture_id'])
+    if fixture is None or utc(fixture.kickoff_at) <= at or (fixture.status or '').upper() in ('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED'):
+        raise ValueError('FIXTURE_NOT_UPCOMING')
+    mapping = db.scalar(select(m.FixtureSourceMapping).where(
+        m.FixtureSourceMapping.fixture_id == fixture.id, m.FixtureSourceMapping.source_id == job.source_id))
+    if mapping is None or mapping.state == 'CONFLICT':
+        raise ValueError('FIXTURE_SOURCE_MAPPING_UNAVAILABLE')
+    candidate = db.get(m.FixtureCandidate, mapping.candidate_id)
+    if candidate is None:
+        raise ValueError('FIXTURE_SOURCE_CANDIDATE_MISSING')
+    side = request['side']
+    if side not in ('home', 'away') or str((candidate.data or {}).get('normalized', {}).get(side + '_provider_id') or '') != request['provider_team_id']:
+        raise ValueError('TEAM_SOURCE_MAPPING_CHANGED')
+    results, rejected, seen = [], [], set()
+    for raw in records:
+        try:
+            results.append(sportsdb_result(raw, (candidate.data or {}).get('raw', {}).get('strSport'), at, seen, request['provider_team_id']))
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            rejected.append(str(exc)[:100])
+    if results:
+        data = {'side': side, 'team': getattr(fixture, side + '_name'), 'provider_team_id': request['provider_team_id'],
+                'results': results, 'coverage': 'PARTIAL', 'limitation': 'Provider response may be truncated; free tier returns home events only.'}
+        content_hash = digest(['team-recent', job.source_id, fixture.id, job.id, data])
+        if not db.scalar(select(m.Observation.id).where(m.Observation.source_id == job.source_id, m.Observation.content_hash == content_hash)):
+            db.add(m.Observation(source_id=job.source_id, fixture_id=fixture.id,
+                source_url='https://www.thesportsdb.com/docs_api_guide', content_hash=content_hash, observed_at=at,
+                payload={'section': 'team_recent_results', 'data': data, 'verification': 'SINGLE_SOURCE', 'job_id': job.id}))
+    return {'accepted': len(results), 'rejected': rejected, 'coverage': 'PARTIAL'}
+
+
+def persist_sportsdb_season_history(db, job, records, at):
+    from app.modules.autonomy.fixture_status import quarantined_fixtures
+    request = job.request
+    profile = db.get(m.DiscoveryCompetition, request['profile_id'])
+    if (profile is None or not profile.active or profile.source_id != job.source_id
+        or profile.provider_key != request['provider_key'] or not profile.season_id
+        or profile.details.get('provider_season', profile.season_label) != request['season']):
+        raise ValueError('HISTORY_PROFILE_MISMATCH')
+    season = db.get(m.CompetitionSeason, profile.season_id)
+    competition = db.get(m.Competition, profile.competition_id)
+    sport = db.get(m.Sport, competition.sport_id) if competition else None
+    if season is None or season.competition_id != profile.competition_id or sport is None:
+        raise ValueError('HISTORY_SEASON_UNMAPPED')
+    provider_sport = next((name for name, canonical in providers.SPORTSDB_SPORTS.items() if canonical == sport.name), None)
+    if provider_sport is None: raise ValueError('HISTORY_SPORT_UNSUPPORTED')
+    history, rejected, seen = [], [], set()
+    for raw in records:
+        try:
+            if not isinstance(raw, dict): raise ValueError('INVALID_EVENT')
+            if str(raw.get('idLeague') or '') != profile.provider_key or raw.get('strSeason') != request['season']:
+                raise ValueError('HISTORY_COMPETITION_IDENTITY_MISMATCH')
+            ids = (str(raw.get('idHomeTeam') or ''), str(raw.get('idAwayTeam') or ''))
+            if any(not value.isdigit() or int(value) <= 0 for value in ids) or ids[0] == ids[1]:
+                raise ValueError('INVALID_TEAM_PROVIDER_ID')
+            event = sportsdb_result(raw, provider_sport, at, seen)
+            history.append((event, ids))
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            rejected.append(str(exc)[:100])
+    history.sort(key=lambda row: (row[0]['kickoff_at'], row[0]['event_id']), reverse=True)
+    mappings = db.execute(select(m.Fixture, m.FixtureCandidate)
+        .join(m.FixtureSourceMapping, m.FixtureSourceMapping.fixture_id == m.Fixture.id)
+        .join(m.FixtureCandidate, m.FixtureCandidate.id == m.FixtureSourceMapping.candidate_id)
+        .where(m.FixtureSourceMapping.source_id == job.source_id, m.FixtureSourceMapping.state != 'CONFLICT',
+               m.Fixture.competition_id == profile.competition_id, m.Fixture.season_id == profile.season_id,
+               m.Fixture.id.not_in(quarantined_fixtures()), m.Fixture.kickoff_at > at,
+               m.Fixture.kickoff_at <= at + timedelta(days=horizon()),
+               m.Fixture.status.notin_(('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED')))).all()
+    observations = 0
+    for fixture, candidate in mappings:
+        normalized = (candidate.data or {}).get('normalized', {})
+        if normalized.get('provider_key') != profile.provider_key or normalized.get('season') != request['season']:
+            continue
+        for side in ('home', 'away'):
+            team_id = str(normalized.get(side + '_provider_id') or '')
+            if not team_id.isdigit() or int(team_id) <= 0: continue
+            results = [event for event, ids in history if team_id in ids][:20]
+            if not results: continue
+            data = {'side': side, 'team': getattr(fixture, side + '_name'), 'provider_team_id': team_id,
+                    'results': results, 'coverage': 'PARTIAL',
+                    'limitation': 'Provider season response may be truncated and may not contain the most recent results; free tier returns at most 15 events.',
+                    'attribution': 'Data from TheSportsDB', 'terms_url': 'https://www.thesportsdb.com/docs_terms_of_use.php'}
+            content_hash = digest(['sportsdb-season-history', fixture.id, job.id, data])
+            if db.scalar(select(m.Observation.id).where(m.Observation.source_id == job.source_id, m.Observation.content_hash == content_hash)):
+                continue
+            db.add(m.Observation(source_id=job.source_id, fixture_id=fixture.id,
+                source_url='https://www.thesportsdb.com/docs_api_guide', content_hash=content_hash, observed_at=at,
+                payload={'section': 'team_recent_results', 'data': data, 'verification': 'SINGLE_SOURCE', 'job_id': job.id}))
+            observations += 1
+    return {'observations': observations, 'accepted_events': len(history), 'rejected': rejected, 'coverage': 'PARTIAL'}
+
+
+def validate_openligadb_feed_identity(job, profile, records):
+    expected_league = profile.details.get('provider_league_id')
+    season = job.request['season']
+    if any((row.get('leagueSeason') is not None and str(row['leagueSeason']) != season)
+           or (expected_league is not None and row.get('leagueId') is not None and row['leagueId'] != expected_league)
+           for row in records):
+        raise ValueError('HISTORY_COMPETITION_IDENTITY_MISMATCH')
+
+
+def persist_openligadb_history(db, job, profile, records, at):
+    """Record pre-match, single-source league results from the validated season feed."""
+    from app.modules.autonomy.fixture_status import quarantined_fixtures
+    season = job.request['season']
+    history, skipped = [], 0
+    for row in records:
+        if row['matchIsFinished'] is not True:
+            continue
+        home, away = row['team1'], row['team2']
+        home_id, away_id = home.get('teamId'), away.get('teamId')
+        if type(home_id) is not int or type(away_id) is not int or min(home_id, away_id) <= 0 or home_id == away_id:
+            skipped += 1
+            continue
+        final = next(score for score in row['matchResults'] if isinstance(score, dict) and score.get('resultTypeKind') == 'After90Minutes')
+        history.append({'event_id': str(row['matchID']), 'kickoff_at': row['matchDateTimeUTC'],
+                        'home': home['teamName'], 'away': away['teamName'],
+                        'home_provider_id': home_id, 'away_provider_id': away_id,
+                        'home_score': final['pointsTeam1'], 'away_score': final['pointsTeam2']})
+    history.sort(key=lambda item: (datetime.fromisoformat(item['kickoff_at'].replace('Z', '+00:00')), item['event_id']), reverse=True)
+    mappings = db.execute(select(m.Fixture, m.FixtureCandidate)
+        .join(m.FixtureSourceMapping, m.FixtureSourceMapping.fixture_id == m.Fixture.id)
+        .join(m.FixtureCandidate, m.FixtureCandidate.id == m.FixtureSourceMapping.candidate_id)
+        .where(m.FixtureSourceMapping.source_id == job.source_id, m.FixtureSourceMapping.state != 'CONFLICT',
+               m.Fixture.competition_id == profile.competition_id, m.Fixture.season_id == profile.season_id,
+               m.Fixture.kickoff_at > at, m.Fixture.kickoff_at <= at + timedelta(days=horizon()),
+               m.Fixture.status.notin_(('FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED')),
+               m.Fixture.id.not_in(quarantined_fixtures()))).all()
+    observations = 0
+    for fixture, candidate in mappings:
+        normalized = (candidate.data or {}).get('normalized', {})
+        if normalized.get('provider_key') != profile.provider_key or normalized.get('season') != season:
+            skipped += 1
+            continue
+        ids = [normalized.get('home_provider_id'), normalized.get('away_provider_id')]
+        if any(type(value) is not int or value <= 0 for value in ids) or ids[0] == ids[1]:
+            skipped += 1
+            continue
+        prior = [row for row in history if utc(datetime.fromisoformat(row['kickoff_at'].replace('Z', '+00:00'))) < at]
+        for side, team_id in zip(('home', 'away'), ids):
+            results = [row for row in prior if team_id in (row['home_provider_id'], row['away_provider_id'])][:20]
+            if not results:
+                continue
+            data = {'side': side, 'team': getattr(fixture, side + '_name'), 'provider_team_id': team_id,
+                    'results': results, 'coverage': 'PARTIAL',
+                    'limitation': 'Current league season only; provider results may be incomplete. Not independently verified.',
+                    'attribution': providers.openligadb.ATTRIBUTION, 'licence_url': providers.openligadb.LICENCE}
+            content_hash = digest(['openligadb-team-history', fixture.id, job.id, data])
+            if db.scalar(select(m.Observation.id).where(m.Observation.source_id == job.source_id, m.Observation.content_hash == content_hash)):
+                continue
+            db.add(m.Observation(source_id=job.source_id, fixture_id=fixture.id,
+                source_url=providers.openligadb.BASE + '/getmatchdata/' + profile.provider_key + '/' + season,
+                content_hash=content_hash, observed_at=at,
+                payload={'section': 'team_recent_results', 'data': data, 'verification': 'SINGLE_SOURCE', 'job_id': job.id}))
+            observations += 1
+    return {'observations': observations, 'finished_results': len(history), 'skipped_missing_team_identity': skipped,
+            'coverage': 'PARTIAL'}
 
 
 def execute(factory, ticket, fetcher=providers.fetch, at=None):
@@ -292,7 +562,12 @@ def execute(factory, ticket, fetcher=providers.fetch, at=None):
         records = providers.rows(ticket['source_id'], ticket['request'], payload)
         result = {'received': len(records), 'counts': {}, 'response_sha256': digest(payload), 'parser_version': providers.PARSER_VERSION,
                   'coverage_complete': False, 'limitation': 'Community coverage; not an official completeness guarantee' if ticket['source_id'] == providers.OL_ID else 'API tier may truncate results; no undocumented pagination is attempted'}
-        for raw in records:
+        if ticket['request']['kind'] in ('team_recent', 'season_history'):
+            with factory.begin() as db:
+                job = owned(db, ticket, clock())
+                if job.kind == 'team_recent': result['team_recent'] = persist_team_recent(db, job, records, at)
+                else: result['season_history'] = persist_sportsdb_season_history(db, job, records, at)
+        for raw in ([] if ticket['request']['kind'] in ('team_recent', 'season_history', 'table') else records):
             with factory.begin() as db:
                 job = owned(db, ticket, clock())
                 if job.kind in ('catalogue','league'):
@@ -308,6 +583,29 @@ def execute(factory, ticket, fetcher=providers.fetch, at=None):
                 result['counts'][state] = result['counts'].get(state, 0) + 1
         with factory.begin() as db:
             job = owned(db, ticket, clock())
+            if job.source_id == providers.SPORTSDB_ID and job.kind == 'table':
+                from app.modules.autonomy.community_tables import cache_sportsdb_table, sportsdb_cache_id
+                profile = db.get(m.DiscoveryCompetition, job.request.get('profile_id'))
+                try:
+                    if (profile is None or profile.source_id != job.source_id or profile.provider_key != job.request['provider_key']
+                        or profile.details.get('provider_season', profile.season_label) != job.request['season']
+                        or not profile.active or not profile.season_id):
+                        raise ValueError('STANDINGS_PROFILE_MISMATCH')
+                    season = db.get(m.CompetitionSeason, profile.season_id)
+                    if season is None or season.competition_id != profile.competition_id:
+                        raise ValueError('STANDINGS_SEASON_UNMAPPED')
+                    result['table_status'] = cache_sportsdb_table(db, profile, records, at)
+                except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                    result['table_status'] = 'REJECTED'
+                    result['table_error'] = (str(exc) or type(exc).__name__)[:200]
+                    if profile and profile.source_id == job.source_id and profile.provider_key == job.request.get('provider_key'):
+                        cache_id = sportsdb_cache_id(profile.provider_key, job.request['season'])
+                        cache = db.get(m.ProviderSyncState, cache_id)
+                        if cache is None:
+                            cache = m.ProviderSyncState(id=cache_id, source_id=job.source_id, payload={}, failures=0)
+                            db.add(cache)
+                        cache.failures = (cache.failures or 0) + 1
+                        cache.payload = {**cache.payload, 'competition_id': profile.competition_id, 'table_error': result['table_error']}
             if job.source_id==providers.OL_ID and job.kind=='fixtures':
                 timings=[]
                 for raw in records:
@@ -317,17 +615,22 @@ def execute(factory, ticket, fetcher=providers.fetch, at=None):
                     except (ValueError,TypeError,KeyError,AttributeError):pass
                 profile=db.get(m.DiscoveryCompetition,job.request['profile_id'])
                 if timings:profile.details={**profile.details,'poll_group':min(timings)[1]}
-                if job.request['shortcut'] == 'bl1':
-                    from app.modules.autonomy.community_tables import cache_discovery_table
+                from app.modules.autonomy.community_tables import SUPPORTED_SHORTCUTS, cache_discovery_table, discovery_cache_id
+                if job.request['shortcut'] in SUPPORTED_SHORTCUTS:
                     try:
-                        if profile is None or profile.source_id != job.source_id or profile.provider_key != 'bl1' or profile.details.get('provider_season', profile.season_label) != job.request['season']:
+                        if profile is None or profile.source_id != job.source_id or profile.provider_key != job.request['shortcut'] or profile.details.get('provider_season', profile.season_label) != job.request['season']:
                             raise ValueError('STANDINGS_PROFILE_MISMATCH')
+                        validate_openligadb_feed_identity(job, profile, records)
                         result['table_status'] = cache_discovery_table(db, profile, records, at)
+                        if result['table_status'] == 'UPDATED':
+                            result['history'] = persist_openligadb_history(db, job, profile, records, at)
+                        cache = db.get(m.ProviderSyncState, discovery_cache_id(profile.provider_key, job.request['season']))
+                        cache.payload = {**cache.payload, 'history_version': 1}
                     except (ValueError, KeyError, TypeError, AttributeError) as exc:
                         result['table_status'] = 'REJECTED'
                         result['table_error'] = (str(exc) or type(exc).__name__)[:200]
-                        if profile and profile.source_id == job.source_id and profile.provider_key == 'bl1':
-                            cache_id = 'openligadb:bl1:' + job.request['season']
+                        if profile and profile.source_id == job.source_id and profile.provider_key == job.request['shortcut']:
+                            cache_id = discovery_cache_id(profile.provider_key, job.request['season'])
                             cache = db.get(m.ProviderSyncState, cache_id)
                             if cache is None:
                                 cache = m.ProviderSyncState(id=cache_id, source_id=job.source_id, payload={}, failures=0)

@@ -166,8 +166,13 @@ def acquire(db,run,at):
 def autonomous_quorum(db):
  """Built-in independence groups for system-registered open-data providers (explicit policy JSON overrides)."""
  from app.modules.autonomy.open_intelligence import GROUPS,enabled
- if not enabled():return {}
- return {sid:{'independence_group':group,'reviewed':True} for sid,group in GROUPS.items() if authorized(db,sid)}
+ from app.modules.research.evidence_bridge import registry
+ policy={sid:{'independence_group':group,'reviewed':True} for sid,group in GROUPS.items() if enabled() and authorized(db,sid)}
+ for sid,entry in registry(db).items():policy.setdefault(sid,entry)
+ from app.modules.autonomy.window_corroboration import registry as window_registry,enabled as window_enabled
+ if window_enabled():
+  for sid,entry in window_registry(db).items():policy.setdefault(sid,entry)
+ return policy
 
 
 def covered_sections(db):
@@ -175,6 +180,11 @@ def covered_sections(db):
  from app.modules.acquisition.jobs import feed_config
  from app.modules.autonomy.open_intelligence import PRODUCED_SECTIONS,FD_SOURCE_ID,enabled
  covered=set(PRODUCED_SECTIONS) if enabled() and authorized(db,FD_SOURCE_ID) else set()
+ from app.modules.research.evidence_bridge import registry
+ for entry in registry(db).values():covered.update(entry['sections'])
+ from app.modules.autonomy.window_corroboration import registry as window_registry,enabled as window_enabled
+ if window_enabled():
+  for entry in window_registry(db).values():covered.update(entry['sections'])
  try:feeds=feed_config()
  except ValueError:feeds={}
  for sid,sections in feeds.items():
@@ -220,9 +230,13 @@ def dossier_summary(dossier):
 
 def research(db,run,at):
  fixture=db.get(m.Fixture,run.fixture_id)
+ from app.modules.research.evidence_bridge import assemble,PRODUCER
+ readiness=assemble(db,fixture,at)
  observations=db.scalars(select(m.Observation).where(m.Observation.fixture_id==fixture.id,m.Observation.observed_at<=at,
      m.Observation.observed_at<fixture.kickoff_at).order_by(m.Observation.observed_at.desc(),m.Observation.id)).all()
  valid=[o for o in observations if authorized(db,o.source_id) and o.content_hash]
+ valid=[o for o in valid if o.payload.get('producer')!=PRODUCER or
+        (o.payload.get('parent_observation_ids') and set(o.payload['parent_observation_ids'])<=set(readiness['usable_parent_observation_ids']))]
  latest=db.scalar(select(m.Research).where(m.Research.fixture_id==fixture.id).order_by(m.Research.version.desc()).limit(1))
  available={o.id for o in valid}
  if latest and latest.status=='VERIFIED' and latest.evidence_ids and set(latest.evidence_ids)<=available and all(latest.sections.get(k,{}).get('status') in SETTLED_SECTION for k in SECTIONS) and not any(o.payload.get('section') in SECTIONS and utc(o.observed_at)>utc(latest.created_at) for o in valid):
@@ -233,13 +247,17 @@ def research(db,run,at):
  policy={**autonomous_quorum(db),**policy}
  covered=covered_sections(db)
  deadline_passed=at>=utc(fixture.kickoff_at)-timedelta(minutes=deadline_minutes())
- sections={};refs=[]
+ sections={};refs=[];verified_refs=[]
  for section in SECTIONS:
   groups={};reviewed=[]
   for obs in valid:
    if obs.payload.get('section')!=section:continue
+   # Bounded discovery samples are useful context, but cannot establish full
+   # section corroboration even if two providers return matching sample metrics.
+   if obs.payload.get('producer')==PRODUCER:continue
    if obs.payload.get('verification')=='INDEPENDENT_REVIEW' and obs.payload.get('reviewer') and obs.payload.get('reviewer')!='vision':reviewed.append(obs)
    entry=policy.get(obs.source_id,{})
+   if isinstance(entry,dict) and ((entry.get('sections') is not None and section not in entry['sections']) or (entry.get('producer') and obs.payload.get('producer')!=entry['producer'])):continue
    group=entry.get('independence_group') if isinstance(entry,dict) and entry.get('reviewed') is True else None
    if isinstance(group,str) and group and group not in groups:groups[group]=obs
   buckets=defaultdict(list)
@@ -250,11 +268,29 @@ def research(db,run,at):
   selected=reviewed[:1] if reviewed else [obs for _,obs in quorum] if quorum else []
   ids=[o.id for o in selected]
   details={'method':'INDEPENDENT_REVIEW' if reviewed else 'CROSS_SOURCE_QUORUM','independence_groups':[g for g,_ in quorum] if quorum else [],'conflict':len(buckets)>1 and not quorum}
+  # Team-history observations are fixture-linked but side-specific; they cannot
+  # satisfy the whole-section quorum or be compared as identical claims.
+  provisional={}
+  for obs in valid:
+   observed_section=obs.payload.get('section')
+   if observed_section==section:
+    provisional.setdefault((obs.source_id,''),obs)
+   elif section=='recent_form' and observed_section=='team_recent_results' and obs.payload.get('verification')=='SINGLE_SOURCE':
+    content=data_of(obs)
+    if not isinstance(content,dict) or content.get('side') not in ('home','away') or not isinstance(content.get('team'),str) or not isinstance(content.get('results'),list) or not content['results']:continue
+    side=content['side']
+    if canonical_key(content.get('team'))!=canonical_key(getattr(fixture,side+'_name')):continue
+    provisional.setdefault((obs.source_id,side),obs)
+  provisional_ids=[o.id for o in provisional.values()]
   if ids and declares_unavailable(selected[0]):
    # Unavailability is itself corroborated evidence, never assumed.
    sections[section]={'status':'UNAVAILABLE','evidence_ids':ids,'details':{**details,'reason':str(data_of(selected[0]).get('reason') or 'Declared unavailable by corroborated sources')}}
   elif ids:
    sections[section]={'status':'VERIFIED','evidence_ids':ids,'details':details}
+   verified_refs.extend(ids)
+  elif provisional_ids:
+   sections[section]={'status':'CONFLICTED' if details['conflict'] else 'PROVISIONAL','evidence_ids':provisional_ids,
+                      'details':{**details,'method':'UNCORROBORATED','reason':'Recorded evidence has not met the research verification policy'}}
   elif section in OPTIONAL_SECTIONS and deadline_passed and not details['conflict']:
    sections[section]={'status':'UNAVAILABLE','evidence_ids':[],'details':{**details,'method':'RESEARCH_DEADLINE','reason':'No corroborated evidence by the pre-kickoff research deadline'}}
   elif section in OPTIONAL_SECTIONS and section not in covered and not details['conflict'] and not any(o.payload.get('section')==section for o in valid):
@@ -262,13 +298,18 @@ def research(db,run,at):
    sections[section]={'status':'UNAVAILABLE','evidence_ids':[],'details':{**details,'method':'NO_SOURCE_COVERAGE','reason':'No enabled authorized source provides this section'}}
   else:
    sections[section]={'status':'CONFLICTED' if details['conflict'] else 'PENDING','evidence_ids':[],'details':details}
-  refs.extend(ids)
- if not refs:raise Waiting('Research requires independently reviewed evidence or agreement from two configured independent source groups',code='NO_CORROBORATED_EVIDENCE')
+  refs.extend(sections[section]['evidence_ids'])
+ managed=bool(db.scalar(select(m.FixtureSourceMapping.id).where(m.FixtureSourceMapping.fixture_id==fixture.id).limit(1)))
+ if not refs and not managed:raise Waiting('Research requires independently reviewed evidence or agreement from two configured independent source groups',code='NO_CORROBORATED_EVIDENCE')
  refs=sorted(set(refs))
  if latest and set(latest.evidence_ids)==set(refs) and latest.sections==sections:dossier=latest
  else:
   built=build_dossier(db,fixture.id,sections,refs,at=at);dossier=db.get(m.Research,built['id'])
  summary=dossier_summary(dossier)
+ if managed:summary['research_readiness']=readiness
+ if not verified_refs:
+  raise Waiting(readiness['reason'] if managed else 'Research requires independently reviewed evidence or agreement from two configured independent source groups',
+                [dossier.id],code='NO_CORROBORATED_EVIDENCE',details=summary)
  if summary['missing_data_report']:
   raise Waiting('Research sections lack corroboration: '+', '.join(summary['missing_data_report']),[dossier.id],code='SECTIONS_UNCORROBORATED',details=summary)
  return receipt(db,run,'research','DOSSIER_VERIFIED',[dossier.id,*refs],summary,at)
@@ -307,6 +348,33 @@ def analyse(db,run,at):
  for section in FEATURE_SECTIONS:
   if dossier.sections.get(section,{}).get('status')!='VERIFIED':
    raise Waiting('Feature-critical research section is unavailable: '+section,[dossier.id],state='INSUFFICIENT_DATA',code='FEATURE_SECTION_UNAVAILABLE')
+ from app.modules.research.sport_profiles import PROFILES
+ competition=db.get(m.Competition,fixture.competition_id)
+ sport=db.get(m.Sport,competition.sport_id)
+ if sport.name.casefold() in PROFILES and sport.name.casefold()!='football':
+  required={side+'_'+metric for side in ('home','away') for metric in ('average_score','average_conceded','win_rate')}
+  values={}
+  for section in FEATURE_SECTIONS:
+   for ident in dossier.sections[section]['evidence_ids']:
+    obs=db.get(m.Observation,ident)
+    if not obs or not authorized(db,obs.source_id):raise Waiting('Analysis evidence source has been revoked',code='SOURCE_REVOKED')
+    if utc(obs.observed_at)>at or utc(obs.observed_at)>=utc(fixture.kickoff_at):raise Waiting('Research evidence post-dates the cutoff',state='BLOCKED',code='FUTURE_DATA_LEAKAGE')
+    content=data_of(obs)
+    if not isinstance(content,dict) or content.get('sport')!=sport.name:raise Waiting('Research feature sport does not match fixture',state='BLOCKED',code='FEATURE_SPORT_MISMATCH')
+    for key in required & content.keys():
+     value=content[key]
+     if type(value) not in (int,float) or not math.isfinite(value) or not 0<=value<=(100 if key.endswith('_win_rate') else 1000):raise Waiting('Invalid sport-specific feature: '+key,state='BLOCKED',code='INVALID_FEATURE')
+     if key in values and values[key]!=value:raise Waiting('Conflicting sport-specific feature: '+key,state='BLOCKED',code='CONFLICTING_FEATURE')
+     values[key]=float(value)
+  if set(values)!=required:raise Waiting('Verified research lacks sport-specific score and win-rate features',[dossier.id],state='INSUFFICIENT_DATA',code='FEATURES_INCOMPLETE')
+  feature=db.scalar(select(m.Feature).where(m.Feature.research_id==dossier.id).order_by(m.Feature.cutoff_at.desc()).limit(1))
+  if feature is None:
+   built=build_feature_snapshot(db,research_id=dossier.id,cutoff_at=at,required_sections=[k for k in SECTIONS if dossier.sections[k]['status']=='VERIFIED']);feature=db.get(m.Feature,built['id'])
+  feature.features={**feature.features,'sport':sport.name,'sport_features':values,
+                    'analysis':{'method':'DESCRIPTIVE_VERIFIED_SPORT_SCORES','score_unit':PROFILES[sport.name.casefold()]['score_unit'],
+                                'average_score_difference':round(values['home_average_score']-values['away_average_score'],4)}}
+  return receipt(db,run,'analyse','FEATURES_MATERIALIZED',[feature.id,dossier.id,*dossier.evidence_ids],
+   {'feature_id':feature.id,'sport':sport.name,'feature_names':sorted(values),'leakage_check':'PASS','method':'DESCRIPTIVE_VERIFIED_SPORT_SCORES'},at)
  numbers={}
  for section in FEATURE_SECTIONS:
   for ident in dossier.sections.get(section,{}).get('evidence_ids',[]):

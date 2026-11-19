@@ -92,11 +92,17 @@ def cycle(factory=SessionLocal,fetcher=None):
   report['errors'].extend(report['standings']['errors'])
   from app.modules.acquisition.source_policy import register_prohibited_sources
   with factory.begin() as db:report['prohibited_sources_recorded']=register_prohibited_sources(db)
+  from app.modules.autonomy.competition_country import backfill as backfill_countries
+  with factory.begin() as db:report['competition_countries_inferred']=backfill_countries(db)
   from app.modules.markets.catalogue import seed as seed_market_catalogue
   with factory.begin() as db:report['market_catalogue_seeded']=seed_market_catalogue(db)
   from app.modules.autonomy.open_intelligence import collect as collect_intelligence
   report['open_intelligence']=collect_intelligence(factory)
   report['errors'].extend(report['open_intelligence'].get('errors',[]))
+  from app.modules.autonomy.window_corroboration import collect as collect_windows
+  try:report['window_corroboration']=collect_windows(factory)
+  except Exception as exc:report['window_corroboration']={'errors':[{'code':type(exc).__name__,'detail':str(exc)[:200]}]}
+  report['errors'].extend(report['window_corroboration'].get('errors',[]))
   from app.modules.autonomy.discovery import collect
   discovery=collect(factory,**({'fetcher':fetcher} if fetcher is not None else {}))
   report['discovery']=discovery

@@ -43,7 +43,8 @@ def _window(status,at,hours):
 
 
 def _joined(*columns):
- return select(*columns).select_from(m.Fixture).join(m.Competition,m.Competition.id==m.Fixture.competition_id).join(m.Sport,m.Sport.id==m.Competition.sport_id)
+ from app.modules.autonomy.fixture_status import quarantined_fixtures
+ return select(*columns).select_from(m.Fixture).join(m.Competition,m.Competition.id==m.Fixture.competition_id).join(m.Sport,m.Sport.id==m.Competition.sport_id).where(m.Fixture.id.not_in(quarantined_fixtures()))
 
 
 def _pipeline(stages):
@@ -51,8 +52,10 @@ def _pipeline(stages):
  current=next((key for key in CHAIN if by_key.get(key) not in SETTLED),None)
  if current is None:current='reconcile' if by_key.get('reconcile') not in SETTLED else None
  outcome=next((key for key in CHAIN if by_key.get(key) in BUSINESS_OUTCOMES),None)
+ current_record=next((s for s in stages if s.stage_key==current),None)
  return {'settled':sum(by_key.get(k) in SETTLED for k in STAGE_KEYS),'current_stage':current,
          'current_status':by_key.get(current) if current else 'COMPLETED',
+         'current_reason':current_record.error if current_record else None,
          'outcome_stage':outcome,'outcome':by_key.get(outcome) if outcome else None,
          'stages':[{'key':k,'status':by_key.get(k,'PENDING')} for k in STAGE_KEYS]}
 
@@ -66,6 +69,19 @@ def _rows(db,fixtures,at):
  for link,candidate,source in db.execute(select(m.FixtureSourceMapping,m.FixtureCandidate,m.Source).join(m.FixtureCandidate,m.FixtureCandidate.id==m.FixtureSourceMapping.candidate_id).join(m.Source,m.Source.id==m.FixtureSourceMapping.source_id).where(m.FixtureSourceMapping.fixture_id.in_(ids))):
   normalized=(candidate.data or {}).get('normalized',{})
   provenance.setdefault(link.fixture_id,[]).append({'provider':source.name,'provider_fixture_id':link.provider_fixture_id,'permission':source.permission,'state':link.state,'last_seen_at':link.last_seen_at,'candidate_id':candidate.id,'job_id':link.job_id,'source_url':normalized.get('source_url'),'venue':normalized.get('venue')})
+ partial_form={}
+ for obs in db.scalars(select(m.Observation).join(m.Source,m.Source.id==m.Observation.source_id)
+   .join(m.Fixture,m.Fixture.id==m.Observation.fixture_id)
+   .where(m.Observation.fixture_id.in_(ids),m.Source.enabled.is_(True),m.Source.permission=='AUTHORIZED',
+          m.Observation.observed_at<=at,m.Observation.observed_at<m.Fixture.kickoff_at,
+          m.Observation.payload['section'].as_string()=='team_recent_results')
+   .order_by(m.Observation.observed_at.desc())):
+  payload=obs.payload or {};data=payload.get('data')
+  if payload.get('verification')!='SINGLE_SOURCE' or not isinstance(data,dict):continue
+  side=data.get('side');results=data.get('results')
+  if side not in ('home','away') or not isinstance(results,list) or not results:continue
+  item=partial_form.setdefault(obs.fixture_id,{'sides':set(),'sources':set(),'last_capture_at':obs.observed_at})
+  item['sides'].add(side);item['sources'].add(obs.source_id)
  quotes={}
  for quote in db.scalars(select(m.Odds).where(m.Odds.fixture_id.in_(ids),m.Odds.observed_at<=at).order_by(m.Odds.observed_at.desc())):
   quotes.setdefault(quote.fixture_id,{}).setdefault((quote.bookmaker,quote.market_key,quote.outcome_key),quote)
@@ -91,9 +107,11 @@ def _rows(db,fixtures,at):
   markets=sorted({q.market_key for q in latest})
   from zoneinfo import ZoneInfo
   evidence=provenance.get(fixture.id,[])
+  form=partial_form.get(fixture.id)
   rows.append({'id':fixture.id,'kickoff_at':fixture.kickoff_at,'kickoff_utc':utc(fixture.kickoff_at),'kickoff_lagos':utc(fixture.kickoff_at).astimezone(ZoneInfo('Africa/Lagos')),
    'verification':'VERIFIED' if fixture.id in verified else 'CONFLICT' if any(x['state']=='CONFLICT' for x in evidence) else 'EXTRACTED' if evidence else 'LEGACY_UNASSESSED',
-   'source_evidence':evidence,'venue':next((e['venue'] for e in evidence if e['venue']),None),'home':fixture.home_name,'away':fixture.away_name,
+   'source_evidence':evidence,'partial_form':{'sides':sorted(form['sides']),'source_count':len(form['sources']),'last_capture_at':form['last_capture_at']} if form else None,
+   'venue':next((e['venue'] for e in evidence if e['venue']),None),'home':fixture.home_name,'away':fixture.away_name,
    'home_team_id':fixture.home_team_id,'away_team_id':fixture.away_team_id,'status':fixture.status,
    'competition':{'id':competition.id,'name':competition.name,'country':competition.country},'sport':sport.name,
    'market_focus':prediction.market_key if prediction else (markets[0] if markets else None),
@@ -109,6 +127,8 @@ def _rows(db,fixtures,at):
 def overview(db,*,at=None,hours=72,sport=None,country=None,competition_id=None,season_id=None,status='upcoming',page=1,page_size=10):
  at=at or datetime.now(timezone.utc)
  if status not in STATUSES:raise ValueError('status must be one of '+', '.join(STATUSES))
+ from app.modules.autonomy.fixture_status import quarantined_fixtures
+ safe_fixture=m.Fixture.id.not_in(quarantined_fixtures())
  scope=dict(sport=sport,country=country,competition_id=competition_id,season_id=season_id)
  upcoming=_window('upcoming',at,hours)
  metrics={'sports':db.scalar(select(func.count()).select_from(m.Sport)) or 0,
@@ -119,13 +139,14 @@ def overview(db,*,at=None,hours=72,sport=None,country=None,competition_id=None,s
           'live_fixtures':db.scalar(_joined(func.count()).where(_window('live',at,hours))) or 0,
           'window_hours':hours}
  metrics['fixtures_total']=db.scalar(select(func.count()).select_from(m.Fixture)) or 0
+ metrics['quarantined_fixtures']=db.scalar(select(func.count(func.distinct(m.FixtureSourceMapping.fixture_id))).where(m.FixtureSourceMapping.fixture_id.in_(quarantined_fixtures()))) or 0
  metrics['observations_total']=db.scalar(select(func.count()).select_from(m.Observation)) or 0
- window_count=func.count(m.Fixture.id).filter(upcoming)
+ window_count=func.count(m.Fixture.id).filter(upcoming,safe_fixture)
  sports=[{'id':i,'name':n,'competitions':c,'fixtures_window':w} for i,n,c,w in db.execute(
   select(m.Sport.id,m.Sport.name,func.count(func.distinct(m.Competition.id)),window_count).select_from(m.Sport)
   .outerjoin(m.Competition,m.Competition.sport_id==m.Sport.id).outerjoin(m.Fixture,m.Fixture.competition_id==m.Competition.id)
   .group_by(m.Sport.id,m.Sport.name).order_by(func.count(func.distinct(m.Competition.id)).desc(),m.Sport.name))]
- competition_query=(select(m.Competition.id,m.Competition.name,m.Competition.country,m.Sport.name,window_count,func.count(m.Fixture.id))
+ competition_query=(select(m.Competition.id,m.Competition.name,m.Competition.country,m.Sport.name,window_count,func.count(m.Fixture.id).filter(safe_fixture))
   .select_from(m.Competition).join(m.Sport,m.Sport.id==m.Competition.sport_id).outerjoin(m.Fixture,m.Fixture.competition_id==m.Competition.id))
  if sport:competition_query=competition_query.where(m.Sport.name==sport)
  if country:competition_query=competition_query.where(m.Competition.country==country)

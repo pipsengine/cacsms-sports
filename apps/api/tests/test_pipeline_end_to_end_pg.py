@@ -50,6 +50,228 @@ def factory(database,monkeypatch):
  transaction.rollback();connection.close()
 
 
+def test_sportsdb_season_history_reaches_workspace_in_postgres(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.research import deep_workspace_routes as deep
+ at=datetime.now(timezone.utc)-timedelta(minutes=1)
+ monkeypatch.setenv('SPORTS_FIXTURE_HORIZON_DAYS','7')
+ with factory.begin() as db:
+  if db.get(m.Source,providers.SPORTSDB_ID) is None:
+   db.add(m.Source(id=providers.SPORTSDB_ID,name='Controlled test SportsDB',enabled=True,permission='AUTHORIZED'))
+   db.flush()
+  discovery.enqueue(db,providers.SPORTSDB_ID,{'kind':'day'},at,interval=1)
+ event={'idEvent':'950001','idLeague':'950002','strLeague':'Controlled English League','strSport':'Soccer','strSeason':'2026-2027',
+        'strHomeTeam':'History Home','strAwayTeam':'History Away','idHomeTeam':'950003','idAwayTeam':'950004',
+        'strTimestamp':(at+timedelta(days=1)).isoformat(),'strStatus':'NS'}
+ ticket=discovery.claim(factory,at);assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:{'events':[event]},at)['counts']=={'EXTRACTED':1}
+ with factory.begin() as db:
+  fixture=db.scalar(select(m.Fixture).where(m.Fixture.home_name=='History Home',m.Fixture.away_name=='History Away'))
+  fixture_id=fixture.id
+  profile=db.scalar(select(m.DiscoveryCompetition).where(m.DiscoveryCompetition.season_id==fixture.season_id))
+  request={'kind':'season_history','profile_id':profile.id,'provider_key':'950002','season':'2026-2027'}
+  discovery.enqueue(db,providers.SPORTSDB_ID,request,at+timedelta(seconds=4),interval=1)
+ prior={**event,'idEvent':'950005','idAwayTeam':'950006','strAwayTeam':'History Opponent',
+        'strTimestamp':(at-timedelta(days=3)).isoformat(),'strStatus':'FT','intHomeScore':'2','intAwayScore':'1'}
+ ticket=discovery.claim(factory,at+timedelta(seconds=4));assert ticket
+ outcome=discovery.execute(factory,ticket,lambda *_:{'events':[prior]},at+timedelta(seconds=4))
+ assert outcome['season_history']['observations']==1
+ monkeypatch.setattr(deep,'SessionLocal',factory)
+ app=FastAPI();app.include_router(deep.router)
+ response=TestClient(app).get('/api/v1/sports/research/workspace/'+fixture_id)
+ assert response.status_code==200
+ report=response.json()
+ evidence=next(e for e in report['evidence'] if e['section']=='recent_form')
+ assert evidence['verification']=='SINGLE_SOURCE' and evidence['data']['results'][0]['home_score']==2
+ assert 'may not contain the most recent' in evidence['data']['limitation']
+ assert next(s for s in report['sections'] if s['key']=='recent_form')['status']=='PROVISIONAL'
+ from types import SimpleNamespace
+ from app.modules.pipeline.operations import research,Waiting
+ with factory.begin() as db:
+  with pytest.raises(Waiting) as exc:research(db,SimpleNamespace(fixture_id=fixture_id),at+timedelta(seconds=5))
+  assert exc.value.code=='NO_CORROBORATED_EVIDENCE'
+  dossier=db.scalar(select(m.Research).where(m.Research.fixture_id==fixture_id))
+  assert dossier.status=='PARTIAL' and dossier.sections['recent_form']['evidence_ids']==[evidence['id']]
+ report=TestClient(app).get('/api/v1/sports/research/workspace/'+fixture_id).json()
+ assert next(s for s in report['sections'] if s['key']=='recent_form')['count']==1
+ assert report['verified_sections']==0
+ from app.modules.research import fixture_intelligence
+ monkeypatch.setattr(fixture_intelligence,'SessionLocal',factory)
+ app.include_router(fixture_intelligence.router)
+ listing=TestClient(app).get('/api/v1/sports/fixture-intelligence/overview',params={'hours':72,'competition_id':report['fixture']['competition_id']})
+ assert listing.status_code==200
+ listed=next(row for row in listing.json()['fixtures']['rows'] if row['id']==fixture_id)
+ assert listed['partial_form']['sides']==['home'] and listed['prediction'] is None and listed['odds'] is None
+ monkeypatch.setenv('SPORTS_THESPORTSDB_ENABLED','1')
+ with factory.begin() as db:
+  discovery.plan(db,at+timedelta(seconds=5))
+  assert db.scalar(select(m.FixtureDiscoveryJob.id).where(m.FixtureDiscoveryJob.kind=='season_history',
+   m.FixtureDiscoveryJob.request['provider_key'].as_string()=='950002'))
+
+
+def test_free_recent_results_persist_and_reach_workspace_in_postgres(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.research import deep_workspace_routes as deep
+ at=datetime.now(timezone.utc)-timedelta(minutes=1)
+ with factory.begin() as db:
+  if db.get(m.Source,providers.SPORTSDB_ID) is None:
+   db.add(m.Source(id=providers.SPORTSDB_ID,name='Controlled test provider',enabled=True,permission='AUTHORIZED'))
+ request={'kind':'day','sport':'Ice Hockey'}
+ fixture={'idEvent':'1001','idLeague':'1002','strLeague':'Controlled League','strSport':'Ice Hockey','strSeason':'2026-2027',
+          'strHomeTeam':'Controlled Home','strAwayTeam':'Controlled Away','idHomeTeam':'1003','idAwayTeam':'1004',
+          'strTimestamp':(at+timedelta(days=1)).isoformat(),'strStatus':'NS'}
+ with factory.begin() as db:discovery.enqueue(db,providers.SPORTSDB_ID,request,at,interval=1)
+ ticket=discovery.claim(factory,at);assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:{'events':[fixture]},at)['counts']=={'EXTRACTED':1}
+ with factory() as db:fixture_id=db.scalar(select(m.Fixture.id).where(m.Fixture.home_name=='Controlled Home'))
+ request={'kind':'team_recent','fixture_id':fixture_id,'side':'home','provider_team_id':'1003'}
+ row={'idEvent':'1005','idHomeTeam':'1003','idAwayTeam':'1006','strHomeTeam':'Controlled Home','strAwayTeam':'Opponent',
+      'strSport':'Ice Hockey','strStatus':'FT','strTimestamp':(at-timedelta(days=1)).isoformat(),'intHomeScore':'3','intAwayScore':'2'}
+ with factory.begin() as db:discovery.enqueue(db,providers.SPORTSDB_ID,request,at+timedelta(seconds=4),interval=1)
+ ticket=discovery.claim(factory,at+timedelta(seconds=4));assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:{'results':[row]},at+timedelta(seconds=4))['team_recent']['accepted']==1
+ monkeypatch.setattr(deep,'SessionLocal',factory)
+ app=FastAPI();app.include_router(deep.router)
+ response=TestClient(app).get('/api/v1/sports/research/workspace/'+fixture_id)
+ assert response.status_code==200
+ report=response.json();evidence=next(item for item in report['evidence'] if item['verification']=='SINGLE_SOURCE')
+ assert evidence['section']=='recent_form' and evidence['data']['results'][0]['home_score']==3
+ assert next(section for section in report['sections'] if section['key']=='recent_form')['status']=='PROVISIONAL'
+ with factory() as db:assert db.scalar(select(func.count()).select_from(m.Prediction))==0
+
+
+def test_quarantined_fixture_is_hidden_by_postgres_api(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import community_tables,fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.research import fixture_intelligence as routes
+ at=datetime.now(timezone.utc)
+ reason=community_tables.QUARANTINED_TABLES['openligadb:la1:2026']
+ monkeypatch.delitem(community_tables.QUARANTINED_TABLES,'openligadb:la1:2026')
+ with factory.begin() as db:
+  if db.get(m.Source,providers.OL_ID) is None:
+   db.add(m.Source(id=providers.OL_ID,name='Controlled test OpenLigaDB',enabled=True,permission='AUTHORIZED'))
+   db.flush()
+  profile=discovery.register_competition(db,providers.OL_ID,
+   {'provider_key':'la1','name':'Controlled League','sport':'Football','country':'Spain','season':'2026','details':{}},at)
+  competition_id=profile.competition_id
+  request={'kind':'fixtures','profile_id':profile.id,'shortcut':'la1','season':'2026'}
+  job=discovery.enqueue(db,providers.OL_ID,request,at,interval=1)
+  row={'matchID':900123,'matchDateTimeUTC':(at+timedelta(days=1)).isoformat(),'matchIsFinished':False,
+       'team1':{'teamId':1,'teamName':'Controlled Home'},'team2':{'teamId':2,'teamName':'Controlled Away'}}
+  assert discovery.persist_fixture(db,job,row,at)=='EXTRACTED'
+ monkeypatch.setitem(community_tables.QUARANTINED_TABLES,'openligadb:la1:2026',reason)
+ monkeypatch.setattr(routes,'SessionLocal',factory)
+ app=FastAPI();app.include_router(routes.router)
+ response=TestClient(app).get('/api/v1/sports/fixture-intelligence/overview',params={'hours':72,'competition_id':competition_id})
+ assert response.status_code==200
+ body=response.json()
+ assert body['fixtures']['total']==0 and body['metrics']['quarantined_fixtures']==1
+ with factory() as db:
+  assert db.scalar(select(func.count()).select_from(m.FixtureCandidate).where(
+   m.FixtureCandidate.source_id==providers.OL_ID,m.FixtureCandidate.provider_fixture_id=='900123'))==1
+
+
+def test_openligadb_league_history_reaches_workspace_in_postgres(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.research import deep_workspace_routes as deep
+ at=datetime.now(timezone.utc)-timedelta(minutes=1)
+ monkeypatch.setenv('SPORTS_FIXTURE_HORIZON_DAYS','7')
+ with factory.begin() as db:
+  if db.get(m.Source,providers.OL_ID) is None:
+   db.add(m.Source(id=providers.OL_ID,name='Controlled test OpenLigaDB',enabled=True,permission='AUTHORIZED'))
+   db.flush()
+  profile=discovery.register_competition(db,providers.OL_ID,
+   {'provider_key':'bl3','name':'Controlled Third Division','country':'Germany','sport':'Football','season':'2026','details':{}},at)
+  request={'kind':'fixtures','profile_id':profile.id,'shortcut':'bl3','season':'2026'}
+  discovery.enqueue(db,providers.OL_ID,request,at,interval=1)
+ upcoming={'matchID':910001,'matchDateTimeUTC':(at+timedelta(days=1)).isoformat(),'matchIsFinished':False,
+           'team1':{'teamId':910,'teamName':'History Home'},'team2':{'teamId':911,'teamName':'History Away'}}
+ prior={'matchID':910002,'matchDateTimeUTC':(at-timedelta(days=3)).isoformat(),'matchIsFinished':True,
+        'team1':{'teamId':910,'teamName':'History Home'},'team2':{'teamId':912,'teamName':'History Opponent'},
+        'matchResults':[{'resultTypeKind':'After90Minutes','pointsTeam1':2,'pointsTeam2':1}]}
+ ticket=discovery.claim(factory,at);assert ticket
+ outcome=discovery.execute(factory,ticket,lambda *_:[upcoming,prior],at)
+ assert outcome['history']['observations']==1
+ with factory() as db:
+  fixture_id=db.scalar(select(m.Fixture.id).where(m.Fixture.home_name=='History Home',m.Fixture.away_name=='History Away'))
+ monkeypatch.setattr(deep,'SessionLocal',factory)
+ app=FastAPI();app.include_router(deep.router)
+ response=TestClient(app).get('/api/v1/sports/research/workspace/'+fixture_id)
+ assert response.status_code==200
+ report=response.json()
+ evidence=next(e for e in report['evidence'] if e['section']=='recent_form')
+ assert evidence['verification']=='SINGLE_SOURCE' and evidence['data']['results'][0]['home_score']==2
+ assert next(s for s in report['sections'] if s['key']=='recent_form')['status']=='PROVISIONAL'
+
+
+def test_second_division_discovery_table_reaches_standings_api_in_postgres(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.standings import routes as standings
+ at=datetime.now(timezone.utc)-timedelta(minutes=1)
+ with factory.begin() as db:
+  if db.get(m.Source,providers.OL_ID) is None:
+   db.add(m.Source(id=providers.OL_ID,name='Controlled community source',enabled=True,permission='AUTHORIZED'))
+  db.flush()
+  profile=discovery.register_competition(db,providers.OL_ID,{'provider_key':'bl2','name':'2. Bundesliga',
+    'country':'Germany','sport':'Football','season':'2026','details':{}},at)
+  profile_id,competition_id=profile.id,profile.competition_id
+  request={'kind':'fixtures','profile_id':profile_id,'shortcut':'bl2','season':'2026'}
+  discovery.enqueue(db,providers.OL_ID,request,at,interval=1)
+ row={'matchID':1007,'matchDateTimeUTC':(at-timedelta(days=1)).isoformat(),'matchIsFinished':True,
+      'team1':{'teamId':1008,'teamName':'Controlled Winner'},'team2':{'teamId':1009,'teamName':'Controlled Loser'},
+      'matchResults':[{'resultTypeKind':'After90Minutes','pointsTeam1':2,'pointsTeam2':1}]}
+ ticket=discovery.claim(factory,at);assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:[row],at)['table_status']=='UPDATED'
+ with factory() as db:season_id=db.get(m.DiscoveryCompetition,profile_id).season_id
+ monkeypatch.setattr(standings,'SessionLocal',factory)
+ app=FastAPI();app.include_router(standings.router)
+ response=TestClient(app).get('/api/v1/sports/standings/table',params={'competition_id':competition_id,'season':season_id,'all_rows':True})
+ assert response.status_code==200
+ report=response.json()
+ assert report['classification']=='community_computed' and report['official'] is False
+ assert report['rows'][0]['club']=='Controlled Winner' and report['rows'][0]['points']==3
+ assert report['source']['source_url'].endswith('/getmatchdata/bl2/2026')
+
+
+def test_sportsdb_partial_table_reaches_standings_api_in_postgres(factory,monkeypatch):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.modules.autonomy import fixture_discovery as discovery,fixture_providers as providers
+ from app.modules.standings import routes as standings
+ at=datetime.now(timezone.utc)-timedelta(seconds=30)
+ event={'idEvent':'8001','idLeague':'8002','strLeague':'Controlled Partial League','strSport':'Soccer','strSeason':'2026-2027',
+        'strHomeTeam':'Controlled Home','strAwayTeam':'Controlled Away','strTimestamp':(at+timedelta(days=1)).isoformat(),'strStatus':'NS'}
+ with factory.begin() as db:
+  if db.get(m.Source,providers.SPORTSDB_ID) is None:db.add(m.Source(id=providers.SPORTSDB_ID,name='Controlled API provider',enabled=True,permission='AUTHORIZED'))
+  discovery.enqueue(db,providers.SPORTSDB_ID,{'kind':'day'},at,interval=1)
+ ticket=discovery.claim(factory,at);assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:{'events':[event]},at)['counts']=={'EXTRACTED':1}
+ with factory.begin() as db:
+  p=db.scalar(select(m.DiscoveryCompetition).where(m.DiscoveryCompetition.provider_key=='8002'))
+  cid,sid=p.competition_id,p.season_id
+  request={'kind':'table','profile_id':p.id,'provider_key':'8002','season':'2026-2027'}
+  discovery.enqueue(db,providers.SPORTSDB_ID,request,at+timedelta(seconds=4),interval=1)
+ row={'idLeague':'8002','strSeason':'2026-2027','idTeam':'8003','strTeam':'Controlled Home','strGroup':'League',
+      'intRank':'1','intPlayed':'4','intWin':'2','intDraw':'1','intLoss':'1','intGoalsFor':'6','intGoalsAgainst':'4',
+      'intGoalDifference':'2','intPoints':'7'}
+ ticket=discovery.claim(factory,at+timedelta(seconds=4));assert ticket
+ assert discovery.execute(factory,ticket,lambda *_:{'table':[row]},at+timedelta(seconds=4))['table_status']=='UPDATED'
+ monkeypatch.setattr(standings,'SessionLocal',factory)
+ app=FastAPI();app.include_router(standings.router)
+ response=TestClient(app).get('/api/v1/sports/standings/table',params={'competition_id':cid,'season':sid})
+ assert response.status_code==200 and response.json()['classification']=='community_partial'
+ assert response.json()['rows'][0]['club']=='Controlled Home' and 'at most five rows' in response.json()['warning']
+
+
 def seed(factory,disagree=False,calibrated=True,at=None,prices=None,omit=()):
  at=at or datetime.now(timezone.utc)-timedelta(hours=4)
  with factory.begin() as db:

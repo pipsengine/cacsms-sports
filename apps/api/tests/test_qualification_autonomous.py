@@ -103,7 +103,48 @@ def test_endpoints(store,monkeypatch):
     assert client.get('/api/v1/sports/qualification/decision-details?status=MAYBE').status_code==422
     assert client.get('/api/v1/sports/qualification/summary').json()['evaluated']==4
     assert client.get('/api/v1/sports/qualification/filters').json()['countries']==['Germany']
+    with factory.begin() as db:
+        db.add(m.Competition(id='br',sport_id='sport',name='Brazilian Serie A',country='Brazil'));db.flush()
+        db.add(m.Fixture(id='br-fx',competition_id='br',home_name='Flamengo',away_name='Palmeiras',kickoff_at=now+timedelta(days=2),status='SCHEDULED'))
+    filters=client.get('/api/v1/sports/qualification/filters').json()
+    stats={c['country']:c for c in filters['country_stats']}
+    assert filters['countries'][0]=='Germany' and 'Brazil' in filters['countries'], 'countries without forecasts are listed, forecasted first'
+    assert stats['Brazil']['fixtures']==1 and stats['Brazil']['forecast_fixtures']==0
+    assert next(c for c in filters['competitions'] if c['id']=='br')['verified_research']==0
     for path in ('rejections','gates','history','comparison'):assert client.get('/api/v1/sports/qualification/'+path).status_code==200
+
+
+def test_grouped_decisions_page_by_fixture_without_splitting(store,monkeypatch):
+    factory,now=store;monkeypatch.setattr(routes_autonomous,'SessionLocal',factory)
+    aq.cycle(factory,at=now)
+    app=FastAPI();app.include_router(routes_autonomous.router);client=TestClient(app)
+    flat=client.get('/api/v1/sports/qualification/decision-details?status=ALL&limit=200').json()
+    body=client.get('/api/v1/sports/qualification/decision-details?status=ALL&group=fixture&limit=1').json()
+    fixtures={i['fixture_id'] for i in flat['items']}
+    assert body['total']==len(fixtures) and body['decisions']==flat['total'] and len(body['groups'])==1
+    group=body['groups'][0]
+    assert len(group['items'])==group['markets']==sum(i['fixture_id']==group['fixture_id'] for i in flat['items'])
+    assert group['qualified']+group['rejected']+group['pending']==group['markets']
+    assert group['best']['decision']=='QUALIFIED' if group['qualified'] else True
+    assert client.get('/api/v1/sports/qualification/decision-details?group=market').status_code==422
+
+
+def test_grouped_decisions_list_markets_the_model_does_not_forecast(store,monkeypatch):
+    factory,now=store;monkeypatch.setattr(routes_autonomous,'SessionLocal',factory)
+    rejected=lambda skill:{'approved':False,'reasons':['DOES_NOT_BEAT_BASELINE_OUT_OF_SAMPLE'],'skill':skill,'calibration_error':0.02}
+    with factory.begin() as db:
+        db.add(m.ModelVersion(id='poisson',sport_id='sport',name='Poisson market model',version='2',status='ACTIVE',
+            validation={**APPROVED,'model_type':'poisson_market','markets':{'ODD_EVEN|ODD':rejected(-0.0004),'ODD_EVEN|EVEN':rejected(-0.0004),
+                        'OU_0.5|OVER':rejected(-0.0007),'BTTS|YES':rejected(-0.01),'CS|0-0':rejected(-0.1),'1X2|HOME':{'approved':True,'reasons':[],'skill':0.11}}}))
+    aq.cycle(factory,at=now)
+    app=FastAPI();app.include_router(routes_autonomous.router);client=TestClient(app)
+    group=client.get('/api/v1/sports/qualification/decision-details?status=ALL&group=fixture&limit=10').json()['groups'][0]
+    listed={(x['market_key'],x['outcome_key']) for x in group['not_forecast']}
+    # BTTS has a forecast for this fixture (from another model), correct scores and approved outcomes are not listed.
+    assert listed=={('ODD_EVEN','ODD'),('ODD_EVEN','EVEN'),('OU_0.5','OVER')}
+    item=next(x for x in group['not_forecast'] if x['market_key']=='OU_0.5')
+    assert item['decision']=='NOT_FORECAST' and item['skill']==-0.07 and 'base-rate' in item['reasons'][0]
+    assert group['markets']==len(group['items']), 'not-forecast rows are not counted as evaluated selections'
 
 
 def test_pending_forecasts_are_rows_not_decisions_and_feed_price_independent_gates(store,monkeypatch):

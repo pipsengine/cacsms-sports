@@ -4,7 +4,7 @@ from app.db import models as m
 SECTIONS=('standings','recent_form','head_to_head','team_news','lineups','injuries','match_statistics')
 # UNAVAILABLE = explicitly marked unavailable (corroborated declaration or research deadline);
 # it completes a mandatory dimension without inventing data.
-VALID={'VERIFIED','UNAVAILABLE','MISSING','PENDING','CONFLICTED'}
+VALID={'VERIFIED','UNAVAILABLE','MISSING','PENDING','PROVISIONAL','CONFLICTED'}
 COMPLETE={'VERIFIED','UNAVAILABLE'}
 
 def build_dossier(session,fixture_id,sections,evidence_ids,*,at=None):

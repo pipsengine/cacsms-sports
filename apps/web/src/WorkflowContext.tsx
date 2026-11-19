@@ -9,14 +9,14 @@ type Stage={stage_key:string;name:string;status:string;error:string|null;started
 type Context={fixture:{id:string;home_name:string;away_name:string;kickoff_at:string;competition_id:string;season_id:string|null;sport:string;competition:string};run:{id:string;fixture_id:string;status:string;progress:number;stages:Stage[]}|null;datasets:Record<string,Row[]>;operations:Row[]};
 const Workflow=createContext<{data:Context|null;error:string;loading:boolean}>({data:null,error:'',loading:false});
 export function WorkflowProvider({children}:{children:React.ReactNode}){
- const location=useLocation(),{change}=useResearchScope();const params=new URLSearchParams(location.search);const run=params.get('run_id'),fixture=params.get('fixture_id');
+ const location=useLocation(),{selectFixture}=useResearchScope();const params=new URLSearchParams(location.search);const run=params.get('run_id'),fixture=params.get('fixture_id');
  const[data,setData]=useState<Context|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false),[revision,setRevision]=useState(0);
  useEffect(()=>{setData(null)},[run,fixture]);
  useBackendRefresh(setRevision);
  useEffect(()=>{if(!run&&!fixture){setData(null);setError('');setLoading(false);return}const controller=new AbortController();setLoading(true);const q=new URLSearchParams();if(run)q.set('run_id',run);if(fixture)q.set('fixture_id',fixture);
  fetch('/api/v1/sports/pipeline/context?'+q,{signal:controller.signal}).then(async r=>{const result=await r.json();if(!r.ok)throw Error(result.detail||'Workflow context unavailable');return result}).then((next:Context)=>{if(!controller.signal.aborted){setData(next);setError('')}}).catch(e=>{if(!controller.signal.aborted){setError(String(e.message));setData(null)}}).finally(()=>{if(!controller.signal.aborted)setLoading(false)});return()=>controller.abort()},[run,fixture,revision]);
  const f=data?.fixture;
- useEffect(()=>{if(!f)return;change('sport',f.sport);change('league',f.competition_id);change('season',f.season_id||'');change('fixture',f.id)},[f?.id,f?.competition_id,f?.season_id]);
+ useEffect(()=>{if(f)selectFixture(f)},[f?.id,f?.sport,f?.competition_id,f?.season_id,selectFixture]);
  return <Workflow.Provider value={{data,error,loading}}>{children}</Workflow.Provider>;
 }
 function redact(key:string,value:unknown):unknown{if(/password|secret|token|api.?key|authorization|cookie/i.test(key))return '[REDACTED]';if(Array.isArray(value))return value.map(v=>redact('',v));if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,redact(k,v)]));return value}

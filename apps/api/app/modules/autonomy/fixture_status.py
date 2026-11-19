@@ -1,13 +1,27 @@
 """Read-only discovery health and time-bound multi-source fixture corroboration."""
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_, or_
 from app.db import models as m
+
+
+def quarantined_fixtures():
+    from app.modules.autonomy.fixture_providers import OL_ID
+    from app.modules.autonomy.community_tables import QUARANTINED_TABLES
+    profiles = [cache_id.split(':') for cache_id in QUARANTINED_TABLES]
+    return (select(m.FixtureSourceMapping.fixture_id)
+            .join(m.FixtureDiscoveryJob, m.FixtureDiscoveryJob.id == m.FixtureSourceMapping.job_id)
+            .where(m.FixtureSourceMapping.source_id == OL_ID,
+                   m.FixtureDiscoveryJob.kind.in_(('fixtures', 'poll')),
+                   or_(*(and_(m.FixtureDiscoveryJob.request['shortcut'].as_string() == shortcut,
+                              m.FixtureDiscoveryJob.request['season'].as_string() == season)
+                         for _, shortcut, season in profiles))))
 
 
 def verified_query(at):
     return (select(m.FixtureSourceMapping.fixture_id).join(m.Source, m.Source.id == m.FixtureSourceMapping.source_id)
             .where(m.Source.enabled.is_(True), m.Source.permission == 'AUTHORIZED',
-                   m.FixtureSourceMapping.last_seen_at >= at - timedelta(hours=24),m.FixtureSourceMapping.last_seen_at <= at)
+                   m.FixtureSourceMapping.last_seen_at >= at - timedelta(hours=24),m.FixtureSourceMapping.last_seen_at <= at,
+                   m.FixtureSourceMapping.fixture_id.not_in(quarantined_fixtures()))
             .group_by(m.FixtureSourceMapping.fixture_id)
             .having(func.count(func.distinct(m.FixtureSourceMapping.source_id)) >= 2,
                     func.count(func.distinct(m.FixtureSourceMapping.signature)) == 1))

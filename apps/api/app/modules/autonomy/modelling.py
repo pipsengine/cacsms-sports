@@ -72,19 +72,41 @@ def train_if_due(factory,at=None):
 MARKET_RETRAIN=timedelta(days=7)
 
 
-def train_market_model_if_due(factory,at=None):
- """Weekly (or when none is active) per-outcome validation of the Poisson market model."""
+MIN_MARKET_HISTORY=300
+
+
+def _train_competition(factory,comp_id,state_key,at):
  from app.modules.prediction import market_model
- at=at or datetime.now(timezone.utc)
  with factory.begin() as db:
-  state=cached(db,'autonomy:market-model',None)
-  comp=db.scalar(select(m.Competition).where(m.Competition.name==COMPETITION,m.Competition.country=='Germany'))
-  if comp is None:return {'status':'NO_COMPETITION'}
-  active=market_model.active_model(db,comp.sport_id)
+  comp=db.get(m.Competition,comp_id)
+  state=cached(db,state_key,None)
+  active=market_model.active_model(db,comp.sport_id,comp.id)
   last=(state.payload or {}).get('trained_at')
   if (state.next_check_at and utc(state.next_check_at)>at) or (active and last and at-datetime.fromisoformat(last)<MARKET_RETRAIN):return {'status':'CURRENT' if active else 'NOT_DUE'}
   state.next_check_at=at+CHECK_EVERY
-  if len(verified_matches(db,comp.id,at))<300:return {'status':'INSUFFICIENT_HISTORY'}
+  if len(verified_matches(db,comp.id,at))<MIN_MARKET_HISTORY:return {'status':'INSUFFICIENT_HISTORY'}
   report=market_model.train(db,comp.sport_id,comp.id,at)
   state.payload={**report,'trained_at':at.isoformat()}
+ return report
+
+
+def train_market_model_if_due(factory,at=None):
+ """Weekly (or when none is active) per-outcome validation of a Poisson market model PER COMPETITION.
+
+ A model forecasts only the competition it was validated on. The Bundesliga keeps its original schedule state;
+ any other football competition with enough corroborated results gets its own model (see window_corroboration)."""
+ at=at or datetime.now(timezone.utc)
+ with factory() as db:
+  comp=db.scalar(select(m.Competition).where(m.Competition.name==COMPETITION,m.Competition.country=='Germany'))
+  others=db.scalars(select(m.Fixture.competition_id).join(m.Result,m.Result.fixture_id==m.Fixture.id)
+                    .join(m.Competition,m.Competition.id==m.Fixture.competition_id).join(m.Sport,m.Sport.id==m.Competition.sport_id)
+                    .where(m.Sport.name=='Football').group_by(m.Fixture.competition_id)
+                    .having(func.count(func.distinct(m.Fixture.id))>=MIN_MARKET_HISTORY)).all()
+ report=_train_competition(factory,comp.id,'autonomy:market-model',at) if comp else {'status':'NO_COMPETITION'}
+ extra={}
+ for comp_id in others:
+  if comp and comp_id==comp.id:continue
+  try:extra[comp_id]=_train_competition(factory,comp_id,'autonomy:market-model:'+comp_id,at)
+  except Exception as exc:extra[comp_id]={'status':'ERROR','code':type(exc).__name__,'detail':str(exc)[:160]}
+ if extra:report={**report,'other_competitions':extra}
  return report

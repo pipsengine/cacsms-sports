@@ -111,7 +111,9 @@ def table(competition_id:str,season:str|None=None,mode:str='overall',as_of:datet
 def top_two(competition_id:str,season:str|None=None,as_of:datetime|None=None):
     def load(db):
         comp,sid,r=table_report(db,competition_id,season,'overall',as_of)
-        return {'competition_id':comp.id,'season':sid,'official':bool(r.get('source') and r['source']['official']),'clubs':r['rows'][:2],'warning':r.get('warning')}
+        clubs=r['rows'][:2]
+        if r['mode']=='community_partial' and [row.get('rank') for row in clubs] != [1,2]:clubs=[]
+        return {'competition_id':comp.id,'season':sid,'official':bool(r.get('source') and r['source']['official']),'clubs':clubs,'warning':r.get('warning')}
     return read(load)
 
 
@@ -170,7 +172,11 @@ def health(competition_id:str):
         nexts=[s.next_check_at for s in authorized if s.next_check_at and not (discovery_enabled() and s.id.startswith('openligadb:'))]
         failures=sum(s.failures or 0 for s in authorized)
         errors=[s.payload['table_error'] for s in authorized if (s.payload or {}).get('table_error')]
-        return {'engine':'standings','status':'FAILED' if failures else 'DATA_AVAILABLE' if success else 'WAITING_FOR_DATA','source_count':len(states),'authorized_sources':len(authorized),
+        from app.modules.autonomy.community_tables import quarantine_reason
+        quarantines=[reason for s in authorized if (reason:=quarantine_reason(s.id))]
+        errors.extend(quarantines)
+        failures+=len(quarantines)
+        return {'engine':'standings','status':'FAILED' if failures or errors else 'DATA_AVAILABLE' if success else 'WAITING_FOR_DATA','source_count':len(states),'authorized_sources':len(authorized),
                 'last_successful_sync':max((s.last_full_at for s in success),default=None),'next_sync':min(nexts,default=None),
                 'source_online':None,'data_quality_score':None,'failures':failures,'errors':errors,'note':'Source authorization and recorded syncs do not prove current reachability or data quality.'}
     return read(load)

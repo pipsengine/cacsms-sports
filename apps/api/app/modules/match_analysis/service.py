@@ -85,17 +85,20 @@ def workspace(db,fixture_id,as_of=None):
     ws=build_workspace(db,fixture_id,as_of)
     cutoff=utc(ws['cutoff']);home,away=ws['summary']['home'],ws['summary']['away']
     feature,research,feature_evidence,metrics,versions=latest_feature(db,fixture_id,cutoff)
-    computed=dict(goals_per_match=(home['average_goals'],away['average_goals'],''),goals_conceded=(home['average_conceded'],away['average_conceded'],''),
-                  clean_sheet_rate=(home['clean_sheet_pct'],away['clean_sheet_pct'],'%'))
+    profile=ws['sport_profile'];football=ws['fixture']['sport'].casefold()=='football'
+    sampled_basis='PROVISIONAL_SAMPLE' if any(team['basis']=='PROVISIONAL_SAMPLE' for team in (home,away)) else 'VERIFIED_RESULTS'
+    computed=dict(goals_per_match=(home['average_score'],away['average_score'],profile['score_unit']),goals_conceded=(home['average_conceded'],away['average_conceded'],profile['score_unit']),
+                  clean_sheet_rate=(home['clean_sheet_pct'],away['clean_sheet_pct'],'%'),win_rate=(home['win_rate'],away['win_rate'],'%'))
+    form_definitions=FORM_METRICS if football else [('goals_per_match',profile['score_label'].replace('Avg.','Average')),('goals_conceded','Average Against'),('win_rate','Sample Win Rate')]
     form_rows=[]
-    for key,label in FORM_METRICS:
+    for key,label in form_definitions:
         if key in metrics:form_rows.append(dict(key=key,label=label,home=metrics[key]['home'],away=metrics[key]['away'],unit=metrics[key]['unit'],basis='FEATURE_SNAPSHOT'))
         elif key in computed and None not in computed[key][:2]:
-            form_rows.append(dict(key=key,label=label,home=computed[key][0],away=computed[key][1],unit=computed[key][2],basis='VERIFIED_RESULTS'))
+            form_rows.append(dict(key=key,label=label,home=computed[key][0],away=computed[key][1],unit=computed[key][2],basis=sampled_basis))
     comparison=[dict(key=k,label=label,**{f:metrics[k][f] for f in ('home','away','unit')}) for k,label in FEATURE_METRICS if k in metrics]
     sections={s['key']:s['status'] for s in ws['sections']}
     sampled=home['sample_size']>0 and away['sample_size']>0
-    def state(key,fallback):return 'VERIFIED' if sections.get(key)=='VERIFIED' else 'COMPUTED' if fallback else 'MISSING'
+    def state(key,fallback):return 'VERIFIED' if sections.get(key)=='VERIFIED' else ('PROVISIONAL' if sampled_basis=='PROVISIONAL_SAMPLE' else 'COMPUTED') if fallback else 'MISSING'
     rows=[dict(key='statistics',name='Statistical Analysis',status=state('match_statistics',sampled)),
              dict(key='form',name='Team Form Analysis',status=state('recent_form',sampled)),
              dict(key='head_to_head',name='Head-to-Head Analysis',status=state('head_to_head',bool(ws['summary']['head_to_head']))),
@@ -107,9 +110,9 @@ def workspace(db,fixture_id,as_of=None):
     tactical_ids={i for k in TACTICAL&set(metrics) for i in metrics[k]['evidence_ids']}
     groups=[dict(key=k,name=name,count=sum(e['section'] in keys for e in authorized)) for k,name,keys in EVIDENCE_GROUPS]
     groups+=[dict(key='tactics',name='Tactical Analysis',count=len(tactical_ids)),dict(key='sources',name='External Sources',count=ws['sources']['authorized'])]
-    xg=metrics.get('xg_per_match')
+    xg=metrics.get('xg_per_match') if football else None
     return dict(fixture=ws['fixture'],cutoff=ws['cutoff'],status='VERIFIED' if verified==len(rows) else 'PARTIAL' if verified else 'INSUFFICIENT_DATA',
-        teams=dict(home=home,away=away),probabilities=probabilities(db,fixture_id,cutoff),
+        teams=dict(home=home,away=away),probabilities=probabilities(db,fixture_id,cutoff),sport_profile=profile,
         expected_goals=dict(home=xg['home'],away=xg['away']) if xg else None,form_metrics=form_rows,feature_comparison=comparison,
         head_to_head=ws['summary']['head_to_head'],summary=rows,verified_rows=verified,evidence_groups=groups,
         evidence=ws['evidence'],sections=ws['sections'],
@@ -118,7 +121,7 @@ def workspace(db,fixture_id,as_of=None):
                       data_freshness_at=max((e['observed_at'] for e in authorized),default=None),next_update_at=ws['runtime']['next_run_at']),
         metrics=dict(summary(db),evidence_items=ws['metrics']['evidence_items'],coverage=round(verified*100/len(rows),1)),
         runtime=ws['runtime'],
-        message='Statistics marked "computed" come from verified results before the cutoff. Comparison metrics require a VERIFIED dossier, '
+        message='Provisional sample statistics are descriptive provider observations, not verified features or forecasts. Statistics marked "computed" come from verified results before the cutoff. Comparison metrics require a VERIFIED dossier, '
                 'authorized evidence and a feature snapshot; probabilities require an ACTIVE model. Missing values are not simulated.')
 
 

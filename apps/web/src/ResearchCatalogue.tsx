@@ -1,6 +1,6 @@
 import {useBackendRefresh} from './LiveUpdates';
 import {StandingsGovernance} from './StandingsGovernance';
-import React,{createContext,useContext,useEffect,useMemo,useState} from 'react';
+import React,{createContext,useCallback,useContext,useEffect,useMemo,useState} from 'react';
 import {CalendarDays,Database,Filter,RefreshCcw,ShieldCheck} from 'lucide-react';
 import './ResearchCatalogue.css';
 
@@ -8,7 +8,8 @@ const API='/api/v1/sports/research/catalog/';
 type Row=Record<string,unknown>;
 type Option={id?:string;name?:string;label?:string};
 type Selection={sport:string;country:string;league:string;season:string;fixture:string;asOf:string};
-type ScopeContext={selection:Selection;change:(key:keyof Selection,value:string)=>void;revision:number;refresh:()=>void};
+type FixtureScope={id:string;sport:string;country?:string|null;competition_id:string;season_id:string|null};
+type ScopeContext={selection:Selection;change:(key:keyof Selection,value:string)=>void;selectFixture:(fixture:FixtureScope)=>void;revision:number;refresh:()=>void};
 const Scope=createContext<ScopeContext|null>(null);
 const initial:Selection={sport:'',country:'',league:'',season:'',fixture:'',asOf:''};
 export function ResearchScopeProvider({children}:{children:React.ReactNode}){
@@ -22,7 +23,10 @@ export function ResearchScopeProvider({children}:{children:React.ReactNode}){
   if(key==='season')next.fixture='';
   return next;
  });
- return <Scope.Provider value={{selection,change,revision,refresh:()=>setRevision(n=>n+1)}}>{children}</Scope.Provider>;
+ const selectFixture=useCallback((f:FixtureScope)=>setSelection(s=>({...s,sport:f.sport,
+  country:f.country===undefined?(s.league===f.competition_id?s.country:''):(f.country||''),
+  league:f.competition_id,season:f.season_id||'',fixture:f.id})),[]);
+ return <Scope.Provider value={{selection,change,selectFixture,revision,refresh:()=>setRevision(n=>n+1)}}>{children}</Scope.Provider>;
 }
 export function useResearchScope(){const value=useContext(Scope);if(!value)throw Error('Research provider missing');return value}
 export function useResearchRemote<T>(url:string|null,revision:number){

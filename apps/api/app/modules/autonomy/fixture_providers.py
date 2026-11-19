@@ -38,10 +38,13 @@ def request_url(provider, request):
         if request['kind'] == 'catalogue': return openligadb.BASE + '/getavailableleagues/' + str(request['season'])
         if request['kind'] == 'poll': return openligadb.BASE + '/getlastchangedate/' + quote(request['shortcut'],safe='') + '/' + quote(request['season'],safe='') + '/' + str(request['group'])
         return openligadb.BASE + '/getmatchdata/' + quote(request['shortcut'], safe='') + '/' + quote(request['season'], safe='')
-    methods = {'catalogue': 'all_leagues.php', 'day': 'eventsday.php', 'fixtures': 'eventsnextleague.php', 'league': 'lookupleague.php'}
+    methods = {'catalogue': 'all_leagues.php', 'day': 'eventsday.php', 'fixtures': 'eventsnextleague.php', 'league': 'lookupleague.php', 'team_recent': 'eventslast.php', 'table': 'lookuptable.php', 'season_history': 'eventsseason.php'}
     method = methods[request['kind']]
     params = {'day': {'d': request.get('date'), 's': request.get('sport')},
-              'fixtures': {'id': request.get('provider_key')}, 'league': {'id': request.get('provider_key')}}.get(request['kind'], {})
+              'fixtures': {'id': request.get('provider_key')}, 'league': {'id': request.get('provider_key')},
+              'team_recent': {'id': request.get('provider_team_id')},
+              'season_history': {'id': request.get('provider_key'), 's': request.get('season')},
+              'table': {'l': request.get('provider_key'), 's': request.get('season')}}.get(request['kind'], {})
     return 'https://www.thesportsdb.com/api/v1/json/' + sportsdb_key() + '/' + method + ('?' + urlencode(params) if params else '')
 
 
@@ -70,7 +73,7 @@ def rows(provider, request, payload):
             return []
         if not isinstance(payload, list) or len(payload) > 10000: raise ProviderError('PARSER_SCHEMA_MISMATCH')
         return payload
-    key = 'leagues' if request['kind'] in ('catalogue', 'league') else 'events'
+    key = 'leagues' if request['kind'] in ('catalogue', 'league') else 'results' if request['kind'] == 'team_recent' else 'table' if request['kind'] == 'table' else 'events'
     if not isinstance(payload, dict) or key not in payload: raise ProviderError('PARSER_SCHEMA_MISMATCH')
     result = payload[key]
     if result is None: return []

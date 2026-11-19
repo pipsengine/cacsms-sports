@@ -5,8 +5,11 @@ exact score). Each market OUTCOME is validated separately on corroborated histor
 matches only, chronological 70/30 split) and is approved only if, out of sample, it beats the train-set
 base-rate forecast on Brier AND log-loss and its calibration error is within SPORTS_MODEL_MAX_ECE.
 Unapproved outcomes are never published, so the scanner reports them as UNSUPPORTED.
+Binary markets the Poisson grid prices poorly (BTTS, match totals, odd/even) may use a direct ridge logistic model
+instead; that choice is made on an inner split of the training matches only, never by looking at the holdout.
 """
 import math
+from functools import lru_cache
 from datetime import datetime,timedelta,timezone
 from sqlalchemy import select
 from app.db import models as m
@@ -120,21 +123,128 @@ def probabilities(f,params=None):
  """Probability of every priced (market, outcome) from the six verified pre-match features (+ fitted parameters)."""
  lh,la=expected_goals(f,params)
  raw=_grid_probabilities(lh,la)
- return calibrated(raw,(params or {}).get('platt'))
+ out=calibrated(raw,(params or {}).get('platt'))
+ return apply_direct(out,f,params) if (params or {}).get('direct') else out
+
+
+# Direct per-market models ------------------------------------------------------------------
+# Binary markets the independent-Poisson grid prices poorly (both-teams-to-score, match totals, odd/even) may instead
+# use a ridge logistic model on the same verified features. The choice and the ridge strength are made on an inner
+# chronological split of the TRAINING matches only; the outer holdout still judges the result once, with the same gates.
+DIRECT_MARKETS={'BTTS':('YES','NO'),'ODD_EVEN':('ODD','EVEN'),**{line_key('OU',line):('OVER','UNDER') for line in TOTAL_LINES}}
+RIDGES=(1.0,3.0,10.0,30.0,100.0)
+FEATURE_KEYS=('home_form','away_form','home_scoring_rate','away_scoring_rate','home_conceding_rate','away_conceding_rate')
+
+
+def direct_features(f,params):
+ lh,la=expected_goals(f,params)
+ return [math.log(lh),math.log(la),math.log(lh+la),*(float(f[k]) for k in FEATURE_KEYS)]
+
+
+def _solve(a,b):
+ """Gaussian elimination with partial pivoting for the small Newton systems below."""
+ n=len(b);a=[row[:]+[v] for row,v in zip(a,b)]
+ for c in range(n):
+  p=max(range(c,n),key=lambda r:abs(a[r][c]))
+  if abs(a[p][c])<1e-12:raise ValueError('SINGULAR_SYSTEM')
+  a[c],a[p]=a[p],a[c]
+  for r in range(c+1,n):
+   k=a[r][c]/a[c][c]
+   for j in range(c,n+1):a[r][j]-=k*a[c][j]
+ x=[0.0]*n
+ for r in range(n-1,-1,-1):x[r]=(a[r][n]-sum(a[r][j]*x[j] for j in range(r+1,n)))/a[r][r]
+ return x
+
+
+def fit_logistic(rows,labels,ridge,iterations=25):
+ """Ridge logistic regression on standardised features (intercept unpenalised), fitted by Newton steps."""
+ d=len(rows[0]);mu=[sum(r[i] for r in rows)/len(rows) for i in range(d)]
+ # A constant feature carries no information; scale 1 keeps it at z=0 (and survives rounding).
+ sd=[s if (s:=(sum((r[i]-mu[i])**2 for r in rows)/len(rows))**.5)>1e-6 else 1.0 for i in range(d)]
+ z=[[1.0,*((r[i]-mu[i])/sd[i] for i in range(d))] for r in rows];w=[0.0]*(d+1)
+ for _ in range(iterations):
+  grad=[0.0]*(d+1);hess=[[0.0]*(d+1) for _ in range(d+1)]
+  for x,y in zip(z,labels):
+   p=_sigmoid(sum(a*b for a,b in zip(w,x)));q=p*(1-p)
+   for i in range(d+1):
+    grad[i]+=(p-y)*x[i]
+    for j in range(i,d+1):hess[i][j]+=q*x[i]*x[j]
+  for i in range(d+1):
+   for j in range(i):hess[i][j]=hess[j][i]
+   if i:grad[i]+=ridge*w[i];hess[i][i]+=ridge
+  step=_solve(hess,grad);w=[a-b for a,b in zip(w,step)]
+  if max(abs(s) for s in step)<1e-8:break
+ return {'weights':[round(v,8) for v in w],'mean':[round(v,8) for v in mu],'scale':[round(v,8) for v in sd],'ridge':ridge}
+
+
+def logistic_probability(model,x):
+ z=[1.0,*((v-m_)/s for v,m_,s in zip(x,model['mean'],model['scale']))]
+ return _sigmoid(sum(a*b for a,b in zip(model['weights'],z)))
+
+
+def apply_direct(out,f,params):
+ out=dict(out);x=direct_features(f,params)
+ for market,model in params['direct'].items():
+  yes,no=DIRECT_MARKETS[market];p=min(1-1e-6,max(1e-6,logistic_probability(model,x)))
+  out[(market,yes)],out[(market,no)]=p,1-p
+ # Keep match totals coherent: P(over a higher line) never exceeds P(over a lower line).
+ previous=1.0
+ for line in TOTAL_LINES:
+  key=line_key('OU',line);over=min(out[(key,'OVER')],previous);previous=over
+  out[(key,'OVER')],out[(key,'UNDER')]=over,1-over
+ return out
+
+
+def poisson_params(train,train_labels):
+ """Shrinkage and per-outcome Platt recalibration, fitted on the given (training) matches only."""
+ params={'shrink':fit_shrink(train)}
+ raw=[_grid_probabilities(*expected_goals(f,params)) for f,_,_ in train]
+ params['platt']={'|'.join(key):fit_platt([(p[key],l[key]) for p,l in zip(raw,train_labels)]) for key in train_labels[0] if key[0]!='DC'}
+ return params
+
+
+def _log_loss(pairs):return scores([(min(1-1e-6,max(1e-6,p)),y) for p,y in pairs])['log_loss']
+
+
+def fit_direct(train,train_labels,full=None):
+ """Per direct market: keep the Poisson price unless a ridge logistic beats it on the inner (later) training split."""
+ inner=int(len(train)*.7);fit,check=train[:inner],train[inner:];fit_labels,check_labels=train_labels[:inner],train_labels[inner:]
+ if len(check)<MIN_HOLDOUT//2:return {},{}
+ base=poisson_params(fit,fit_labels)
+ poisson_check=[probabilities(f,base) for f,_,_ in check]
+ x_fit=[direct_features(f,base) for f,_,_ in fit];x_check=[direct_features(f,base) for f,_,_ in check]
+ full=full or poisson_params(train,train_labels);x_full=[direct_features(f,full) for f,_,_ in train]
+ chosen,evidence={},{}
+ for market,(yes,_) in DIRECT_MARKETS.items():
+  key=(market,yes);y_fit=[l[key] for l in fit_labels];y_check=[l[key] for l in check_labels]
+  if not 0<sum(y_fit)<len(y_fit):continue
+  poisson_loss=_log_loss([(p[key],y) for p,y in zip(poisson_check,y_check)])
+  trials={}
+  for r in RIDGES:
+   candidate=fit_logistic(x_fit,y_fit,r)
+   trials[r]=_log_loss([(logistic_probability(candidate,x),y) for x,y in zip(x_check,y_check)])
+  ridge=min(trials,key=trials.get)
+  evidence[market]={'inner_log_loss':{'poisson':poisson_loss,'direct':trials[ridge]},'ridge':ridge}
+  if trials[ridge]<poisson_loss:chosen[market]=fit_logistic(x_full,[l[key] for l in train_labels],ridge)
+ return chosen,evidence
+
+
+@lru_cache(maxsize=None)
+def _winning_outcomes():
+ """Per scoreline on the grid, the (market, outcome) pairs it wins; plus every priced pair (computed once)."""
+ cells=tuple(((i,j),tuple((mk,oc) for mk,ocs in settled_outcomes(i,j).items() for oc,st in ocs.items() if st=='WON'))
+             for i in range(MAX_GOALS+1) for j in range(MAX_GOALS+1))
+ return cells,tuple((mk,oc) for mk,ocs in settled_outcomes(0,0).items() for oc in ocs)
 
 
 def _grid_probabilities(lh,la):
  ph=[math.exp(-lh)*lh**k/math.factorial(k) for k in range(MAX_GOALS+1)]
  pa=[math.exp(-la)*la**k/math.factorial(k) for k in range(MAX_GOALS+1)]
- norm=sum(ph)*sum(pa)
- grid={(i,j):ph[i]*pa[j]/norm for i in range(MAX_GOALS+1) for j in range(MAX_GOALS+1)}
- out={}
- for (i,j),p in grid.items():
-  for market,outcomes in settled_outcomes(i,j).items():
-   for outcome,state in outcomes.items():
-    if state=='WON':out[(market,outcome)]=out.get((market,outcome),0)+p
- for market,outcomes in settled_outcomes(0,0).items():
-  for outcome in outcomes:out.setdefault((market,outcome),0.0)
+ norm=sum(ph)*sum(pa);cells,keys=_winning_outcomes()
+ out=dict.fromkeys(keys,0.0)
+ for (i,j),won in cells:
+  p=ph[i]*pa[j]/norm
+  for key in won:out[key]+=p
  return out
 
 
@@ -158,9 +268,10 @@ def validate(rows,max_ece):
  labels=lambda hg,ag:{(mk,oc):1 if st=='WON' else 0 for mk,ocs in settled_outcomes(hg,ag).items() for oc,st in ocs.items()}
  train_labels=[labels(hg,ag) for _,hg,ag in train];test_labels=[labels(hg,ag) for _,hg,ag in test]
  # All parameters are fitted on the training (earlier) matches only; the later holdout judges them.
- params={'shrink':fit_shrink(train)}
- train_raw=[probabilities(f,params) for f,_,_ in train]
- params['platt']={'|'.join(key):fit_platt([(p[key],l[key]) for p,l in zip(train_raw,train_labels)]) for key in train_labels[0] if key[0]!='DC'}
+ params=poisson_params(train,train_labels)
+ direct,selection=fit_direct(train,train_labels,params)
+ if direct:params['direct']=direct
+ params['direct_selection']=selection
  test_probs=[probabilities(f,params) for f,_,_ in test]
  for key in test_labels[0]:
   rate=sum(l[key] for l in train_labels)/len(train_labels)
@@ -171,7 +282,8 @@ def validate(rows,max_ece):
   if not (model['brier']<base['brier'] and model['log_loss']<base['log_loss']):reasons.append('DOES_NOT_BEAT_BASELINE_OUT_OF_SAMPLE')
   if ece is None or ece>max_ece:reasons.append('CALIBRATION_ERROR_TOO_HIGH')
   results['|'.join(key)]={'approved':not reasons,'reasons':reasons,'holdout':model,'baseline':base,'calibration_error':round(ece,6) if ece is not None else None,
-                          'skill':round(1-model['brier']/base['brier'],6) if base['brier'] else None,'train_rate':round(rate,6)}
+                          'skill':round(1-model['brier']/base['brier'],6) if base['brier'] else None,'train_rate':round(rate,6),
+                          'method':'direct_logistic' if key[0] in direct else 'poisson_grid'}
  return results,len(train),len(test),params
 
 
@@ -200,23 +312,27 @@ def train(db,sport_id,competition_id,at=None):
  from app.modules.prediction.service import FEATURE_NAMES
  validation={'model_type':MODEL_TYPE,'feature_names':list(FEATURE_NAMES),'method':'Independent Poisson goals from verified pre-match rates, shrunk to league means; per-outcome Platt recalibration (train split only)',
              'training_count':n_train,'holdout_count':n_test,'parameters':params,'max_calibration_error':max_ece,'markets':markets,'approved_outcomes':len(approved),
-             'validated_at':at.isoformat()}
+             'validated_at':at.isoformat(),'competition_ids':[competition_id]}
  if approved:validation.update({k:True for k in REQUIRED})
  model=m.ModelVersion(sport_id=sport_id,name=NAME,version=at.strftime('%Y%m%d.%H%M%S'),status='ACTIVE' if approved else 'CHALLENGER',validation=validation)
  db.add(model);db.flush()
  if approved:
+  from app.modules.prediction.scope import competitions_for
+  # Retire only market models serving the same competition; other leagues keep their own validated model.
   for old in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.status=='ACTIVE',m.ModelVersion.id!=model.id)):
-   if model_type(old)==MODEL_TYPE:old.status='RETIRED'
+   if model_type(old)==MODEL_TYPE and competition_id in competitions_for(db,old):old.status='RETIRED'
  db.add(m.AuditEvent(actor='autonomous-model-governance',action='model.market_validation',correlation_id=model.id,
                      payload={'status':model.status,'approved_outcomes':approved,'rejected':{k:v['reasons'] for k,v in markets.items() if not v['approved']},
                               'holdout_count':n_test,'max_calibration_error':max_ece}))
  return {'model_id':model.id,'status':model.status,'approved_outcomes':len(approved),'validated_outcomes':len(markets),'holdout':n_test}
 
 
-def active_model(db,sport_id):
- for model in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.status=='ACTIVE')):
+def active_model(db,sport_id,competition_id=None):
+ """The validated market model for a sport; with competition_id, only one validated on that competition."""
+ from app.modules.prediction.scope import in_scope
+ for model in db.scalars(select(m.ModelVersion).where(m.ModelVersion.sport_id==sport_id,m.ModelVersion.status=='ACTIVE').order_by(m.ModelVersion.version.desc())):
   v=model.validation or {}
-  if model_type(model)==MODEL_TYPE and all(v.get(k) is True for k in REQUIRED):return model
+  if model_type(model)==MODEL_TYPE and all(v.get(k) is True for k in REQUIRED) and (competition_id is None or in_scope(db,model,competition_id)):return model
  return None
 
 
@@ -225,8 +341,8 @@ def infer(db,fixture,dossier_id=None,now=None):
  from app.modules.prediction.prospective import eligible
  now=now or datetime.now(timezone.utc)
  report={'created':[],'existing':[],'blocked':[]}
- model=active_model(db,fixture.sport_id)
- if model is None:report['blocked'].append('No validated market model');return report
+ model=active_model(db,fixture.sport_id,fixture.competition_id)
+ if model is None:report['blocked'].append('No market model validated on this competition');return report
  query=select(m.Research).where(m.Research.fixture_id==fixture.id,m.Research.status=='VERIFIED')
  if dossier_id:query=query.where(m.Research.id==dossier_id)
  for dossier in db.scalars(query):

@@ -44,7 +44,7 @@ function Empty({children}:{children:React.ReactNode}){return <div className="dmr
 function DecisionIcon({row}:{row:Evaluation}){const ok=row.decision==='QUALIFIED',none=row.decision==='NO_MARKET_PRICE';const label=ok?'Qualified for paper review':none?'No matching price':'Rejected: '+row.reasons.map(r=>REASONS[r]||r).join(', ');return <span className={'aip-decision-icon '+(ok?'good':none?'muted':'bad')} title={label} aria-label={label} role="img">{ok?<CheckCircle2 size={16}/>:none?<Clock3 size={16}/>:<X size={16}/>}</span>}
 function Decision({row}:{row:Evaluation}){const ok=row.decision==='QUALIFIED';return <span className={'aip-decision '+(ok?'good':row.decision==='NO_MARKET_PRICE'?'muted':'')} title={row.reasons.map(r=>REASONS[r]||r).join(', ')||'All gates passed'}>{ok?'Qualified':row.decision==='NO_MARKET_PRICE'?'No price':REASONS[row.reasons[0]]||'Rejected'}</span>}
 export default function AIPredictions(){
- const {selection:s,change,revision,refresh}=useResearchScope();const location=useLocation();const navigate=useNavigate();const incoming=new URLSearchParams(location.search).get('fixture_id')||'';
+ const {selection:s,change,selectFixture,revision,refresh}=useResearchScope();const location=useLocation();const navigate=useNavigate();const incoming=new URLSearchParams(location.search).get('fixture_id')||'';
  const[tab,setTab]=useState('Match Prediction'),[book]=useState('');
  const sports=useResearchRemote<Option[]>(CAT+'sports',revision);
  const countries=useResearchRemote<{name:string}[]>(s.sport?CAT+'countries?'+new URLSearchParams({sport:s.sport}):null,revision);
@@ -61,7 +61,7 @@ export default function AIPredictions(){
  useEffect(()=>{if(!incoming&&!s.league&&leagues.data?.length)change('league',leagues.data[0].id)},[incoming,s.league,leagues.data]);
  useEffect(()=>{if(!incoming&&!s.season&&seasons.data?.length)change('season',(seasons.data.find(v=>v.is_current)||seasons.data[0]).id)},[incoming,s.season,seasons.data]);
  useEffect(()=>{if(!incoming&&!s.fixture&&fixtures.data?.length)change('fixture',fixtures.data[0].id)},[incoming,s.fixture,fixtures.data]);
- useEffect(()=>{if(incoming&&f){if(s.sport!==f.sport)change('sport',f.sport);if(s.country!==(f.country||''))change('country',f.country||'');if(s.league!==f.competition_id)change('league',f.competition_id);if(s.season!==(f.season_id||''))change('season',f.season_id||'');change('fixture',f.id)}},[incoming,f?.id]);
+ useEffect(()=>{if(incoming&&f)selectFixture(f)},[incoming,f?.id,f?.sport,f?.country,f?.competition_id,f?.season_id,selectFixture]);
  const select=(key:'sport'|'country'|'league'|'season'|'fixture',v:string)=>{if(incoming)navigate(location.pathname,{replace:true});change(key,v)};
  const evals=d?.evaluations||[];
  const top=(()=>{const seen=new Set<string>();return evals.filter(r=>!seen.has(r.market_key)&&seen.add(r.market_key)).slice(0,3)})();

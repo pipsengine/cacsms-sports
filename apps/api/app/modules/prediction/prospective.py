@@ -16,6 +16,13 @@ def eligible(model, feature, dossier, fixture, now):
         return False, 'Prospective cutoff or kickoff invalid'
     if not isinstance(feature.features,dict) or set(feature.features.get('numeric_features',{})) != set(FEATURE_NAMES):
         return False, 'Sport-specific numeric feature contract unavailable'
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+    from app.modules.prediction.scope import in_scope
+    try: db = object_session(fixture) or object_session(model)
+    except UnmappedInstanceError: db = None
+    if db is not None and not in_scope(db, model, fixture.competition_id):
+        return False, 'Model was not validated on this competition'
     return True, None
 
 def forecast_details(artifact, features, probability):
