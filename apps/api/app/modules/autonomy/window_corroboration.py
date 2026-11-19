@@ -80,7 +80,14 @@ LEGAL_TOKENS = {'fc', 'afc', 'cf', 'sc', 'kv', 'kvc', 'krc', 'kaa', 'rsc', 'ksv'
 
 
 class ProviderError(ValueError):
-    pass
+    def __init__(self, code, retry_after=0):
+        super().__init__(code)
+        self.retry_after = retry_after
+
+
+def _seconds(value, default=0):
+    try: return max(0, min(3600, int(str(value).strip())))
+    except (TypeError, ValueError): return default
 
 
 def now(): return datetime.now(timezone.utc)
@@ -190,7 +197,8 @@ def registry(db):
 
 # HTTP -------------------------------------------------------------------------------------
 
-def _get(url, headers=None, limit=4_000_000):
+def _get(url, headers=None, limit=4_000_000, capture=None):
+    """GET with policy checks. `capture` (a dict) receives the response headers, e.g. provider rate-limit counters."""
     import httpx
     from app.modules.acquisition.jobs import validate_feed_url
     source_policy.assert_permitted(url)
@@ -198,7 +206,10 @@ def _get(url, headers=None, limit=4_000_000):
     with httpx.Client(timeout=20, follow_redirects=False, trust_env=False,
                       headers={'User-Agent': USER_AGENT, **(headers or {})}) as client:
         with client.stream('GET', url) as response:
-            if response.status_code != 200: raise ProviderError('HTTP_' + str(response.status_code))
+            if capture is not None: capture.update({k.lower(): v for k, v in response.headers.items()})
+            if response.status_code != 200:
+                wait = _seconds(response.headers.get('x-requestcounter-reset') or response.headers.get('retry-after'))
+                raise ProviderError('HTTP_' + str(response.status_code), wait)
             body = bytearray()
             for chunk in response.iter_bytes():
                 body.extend(chunk)
@@ -224,12 +235,26 @@ def footballdata_url(code, season):
 
 
 def fetch_footballdata(code, season):
+    """One competition season. The provider's counters (X-Requests-Available-Minute, X-RequestCounter-Reset) are
+    returned under '_throttle' so the scheduler waits for the reset instead of hitting the rate limiter."""
     key = footballdata_key()
     if not key or not all(c.isalnum() for c in key): raise ProviderError('INVALID_CREDENTIAL_CONFIGURATION')
-    try: return json.loads(_get(footballdata_url(code, season), {'X-Auth-Token': key, 'Accept': 'application/json'}))
+    headers = {}
+    try: payload = json.loads(_get(footballdata_url(code, season), {'X-Auth-Token': key, 'Accept': 'application/json'}, capture=headers))
     except (ValueError, UnicodeError) as exc:
         if isinstance(exc, ProviderError): raise
         raise ProviderError('INVALID_JSON_RESPONSE') from exc
+    if isinstance(payload, dict):
+        payload['_throttle'] = {'available': _seconds(headers.get('x-requests-available-minute'), None),
+                                'reset': _seconds(headers.get('x-requestcounter-reset'), 60)}
+    return payload
+
+
+def throttle_wait(payload):
+    """Seconds to pause a provider after a successful response, from its own rate-limit counters."""
+    info = payload.get('_throttle') if isinstance(payload, dict) else None
+    if not isinstance(info, dict) or info.get('available') is None: return 0
+    return info['reset'] if info['available'] <= 1 else 0
 
 
 def sportsdb_season(season, calendar): return str(season) if calendar else f'{season}-{season + 1}'
@@ -512,11 +537,14 @@ def refresh(factory, at, fetchers):
             if rate.next_check_at and utc(rate.next_check_at) > at:
                 report['skipped'] += 1; continue
             rate.next_check_at = at + SPACING[provider]
+        pause = 0
         try:
             if provider == 'apifootball':
                 rows, skipped = parse_apifootball(fetchers['apifootball'](league, season), season, at), 0
             elif provider == 'footballdata':
-                rows, skipped = parse_footballdata(fetchers['footballdata'](league, season), season, at), 0
+                payload = fetchers['footballdata'](league, season)
+                pause = throttle_wait(payload)
+                rows, skipped = parse_footballdata(payload, season, at), 0
             elif provider == 'thesportsdb':
                 rows, skipped = parse_thesportsdb(fetchers['thesportsdb'](league, sportsdb_season(season, calendars[key])), season, at), 0
             else:
@@ -525,11 +553,21 @@ def refresh(factory, at, fetchers):
             code = (str(exc) if isinstance(exc, (ValueError, PermissionError)) else type(exc).__name__)[:200]
             report['errors'].append({'provider': provider, 'league': league, 'season': season, 'code': code})
             with factory.begin() as db:
-                state = cached(db, key, sid); state.failures = (state.failures or 0) + 1
-                state.next_check_at = at + timedelta(minutes=min(720, 15 * 2 ** min(state.failures, 5)))
+                state = cached(db, key, sid)
+                if code == 'HTTP_429':
+                    # Rate limited: pause the whole provider until its counter resets; not a data failure.
+                    wait = timedelta(seconds=getattr(exc, 'retry_after', 0) or 60)
+                    cached(db, 'wc:rate:' + provider, sid).next_check_at = at + wait
+                    state.next_check_at = at + wait
+                else:
+                    state.failures = (state.failures or 0) + 1
+                    state.next_check_at = at + timedelta(minutes=min(720, 15 * 2 ** min(state.failures, 5)))
                 state.payload = {**(state.payload or {}), 'error': code, 'error_at': at.isoformat()}
             continue
         with factory.begin() as db:
+            if pause:
+                rate = cached(db, 'wc:rate:' + provider, sid)
+                rate.next_check_at = max(utc(rate.next_check_at) if rate.next_check_at else at, at + timedelta(seconds=pause))
             state = cached(db, key, sid)
             state.payload = {'rows': rows, 'season': season, 'league': league, 'url': url, 'excluded_rows': skipped,
                              'response_sha256': _hash(rows)}

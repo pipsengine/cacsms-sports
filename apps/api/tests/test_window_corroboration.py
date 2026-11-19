@@ -245,3 +245,24 @@ def test_public_thesportsdb_key_is_never_a_corroboration_provider(store, monkeyp
     with store() as db:
         assert wc.provider_enabled(db, 'thesportsdb')
         assert 'paidkey42' not in wc.sportsdb_reference_url(4338, 2026, False)
+
+
+def test_footballdata_rate_limit_counters_pause_the_provider(store, monkeypatch):
+    monkeypatch.setenv('SPORTS_FOOTBALL_DATA_ORG_KEY', 'fdkey')
+    monkeypatch.setitem(wc.LEAGUES, ('belgian pro league', 'belgium'),
+                        {**wc.LEAGUES[('belgian pro league', 'belgium')], 'footballdata': 'BJL'})
+    fx, _ = fetchers()
+    fx['footballdata'] = lambda code, season: {**fdorg_payload(CURRENT, season), '_throttle': {'available': 0, 'reset': 45}}
+    wc.collect(store, at=AT, fetchers=fx)
+    with store() as db:
+        rate = db.get(m.ProviderSyncState, 'wc:rate:footballdata')
+        assert abs((wc.utc(rate.next_check_at) - AT).total_seconds() - 45) < 1, 'waits for the provider counter reset'
+    assert wc.throttle_wait({'_throttle': {'available': 8, 'reset': 40}}) == 0
+
+    def limited(code, season): raise wc.ProviderError('HTTP_429', 30)
+    fx['footballdata'] = limited
+    report = wc.collect(store, at=AT + timedelta(minutes=5), fetchers=fx)
+    assert any(e['code'] == 'HTTP_429' for e in report['errors'])
+    with store() as db:
+        states = [s for s in db.scalars(select(m.ProviderSyncState)) if s.id.startswith('wc:footballdata:')]
+        assert all((s.failures or 0) == 0 for s in states), 'rate limiting is not counted as a data failure'
