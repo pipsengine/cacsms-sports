@@ -33,6 +33,8 @@
 .dmr-research .dmr-readiness p{font-size:12px;line-height:1.45;margin:8px 0 0}
 .dmr-research .dmr-readiness summary:focus-visible{outline:2px solid #0865ff;outline-offset:3px}
 .dmr-research .dmr-error svg{flex-shrink:0}
+.dmr-research .dmr-coverage-summary{margin:0 0 6px;color:#405c8b;font-size:11px;line-height:1.4}
+.dmr-research .dmr-coverage-bar.provisional i{background:#d99418}
 @media(min-width:1101px) and (max-width:1450px){
  .dmr-research .dmr-header{display:flex;min-height:0;gap:12px}
  .dmr-research .dmr-intro{flex:1;min-width:0}

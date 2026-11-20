@@ -39,9 +39,15 @@ This is not a guarantee of data for every sport, fixture or time.
 The research stage can compile a `PARTIAL` dossier referencing the latest eligible fixture-linked observations;
 this is not a completed or verified research stage and does not unlock analysis or predictions. The workspace
 distinguishes recorded evidence from dossier links and provisional league-table context. Verified coverage uses
-the seven pre-match dossier sections, not post-match results. Form observations are marked stale when their latest
+the seven pre-match dossier sections, not post-match results. The Research Coverage panel separately counts
+provisional pre-match sections; its colored bars indicate status rather than completeness. The panel refreshes
+automatically, but coverage cannot increase until eligible evidence is acquired and processed. Form observations
+are marked stale when their latest
 underlying result is more than 30 days old; an observation's capture time is not the event date, and a recent
 result does not establish a complete form window. Revoked sources cannot support verified workspace sections.
+Deep Match Research defaults to an upcoming scheduled fixture when one is recorded; past fixtures remain
+selectable with their kickoff dates and statuses. Historical research is limited to evidence captured before
+kickoff and does not become current research when the page refreshes.
 Fixtures & Competitions indicates when authorized, pre-kickoff partial form evidence is available for either
 participant. The pipeline may still show `WAITING_FOR_DATA`: partial single-source observations do not meet
 the independent research verification requirement. Absent odds and forecasts remain unavailable.

@@ -1,5 +1,6 @@
 """Deep Research layout and stable-refresh checks using isolated test responses."""
 import json,os,subprocess
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[1]
@@ -13,11 +14,19 @@ def main():
         keys=['head_to_head','recent_form','injuries','lineups','match_statistics','official_result','team_news','standings']
         stamp='2026-11-10T12:00:00Z'
         names=['Head-to-Head','Team Form','Injuries & Availability','Probable Lineups','Match Statistics','Official Results','Club News & Reports','League Standings']
+        second_verified=[False]
+        only_past=[False]
+        now=datetime.now(timezone.utc)
+        kicks={'f1':(now+timedelta(days=1)).isoformat(),'f2':(now-timedelta(days=13)).isoformat(),'f3':(now+timedelta(hours=1)).isoformat()}
+        statuses={'f1':'SCHEDULED','f2':'COMPLETED_UNVERIFIED','f3':'CANCELLED'}
         def entry(name,rank):return dict(club=name,rank=rank,played=10,wins=7,draws=2,losses=1,goals_for=20,goals_against=9,goal_difference=11,points=23,form='WWDLW')
         def team(name,rank):return dict(name=name,standing=entry(name,rank),form='WWDLW',average_goals=2,clean_sheet_pct=40,sample_size=10)
         def workspace(ident):
-            return dict(fixture=dict(id=ident,home='Test Home' if ident=='f1' else 'Other Home',away='Test Away',kickoff_at='2026-11-20T16:00:00Z',status='SCHEDULED',matchday=28,competition_id='league',competition='Test League',country='Germany',sport='Football',season_id='season',season='2026/2027'),cutoff=stamp,dossier_id='dossier',version=1,status='VERIFIED',last_research_at=stamp,
-             sections=[dict(key=k,name=n,count=1,status='VERIFIED',details={}) for k,n in zip(keys,names)],evidence=[dict(id=k,section=k,observed_at=stamp,source_name='Test source',source_url='https://example.org/evidence',status='RECORDED_AUTHORIZED',data={'fact':k}) for k in keys],verified_sections=8,total_sections=8,sample_limit=500,
+            def section_status(key):
+                if ident=='f1' or (key=='recent_form' and second_verified[0]):return 'VERIFIED'
+                return 'PROVISIONAL' if key in ('recent_form','match_statistics') else 'NO_VERIFIED_EVIDENCE'
+            return dict(fixture=dict(id=ident,home='Test Home' if ident=='f1' else 'Other Home',away='Test Away',kickoff_at=kicks[ident],status=statuses[ident],matchday=28,competition_id='league',competition='Test League',country='Germany',sport='Football',season_id='season',season='2026/2027'),cutoff=stamp,dossier_id='dossier',version=1,status='VERIFIED' if ident=='f1' else 'INCOMPLETE',last_research_at=stamp,
+             sections=[dict(key=k,name=n,count=1 if section_status(k) in ('VERIFIED','PROVISIONAL') else 0,recorded_count=1 if section_status(k) in ('VERIFIED','PROVISIONAL') else 0,required=k!='official_result',status=section_status(k),details={}) for k,n in zip(keys,names)],evidence=[dict(id=k,section=k,observed_at=stamp,source_name='Test source',source_url='https://example.org/evidence',status='RECORDED_AUTHORIZED',data={'fact':k}) for k in keys],verified_sections=7 if ident=='f1' else int(second_verified[0]),total_sections=7,sample_limit=500,
              summary=dict(home=team('Test Home',1),away=team('Test Away',2),top_two=[entry('Test Home',1),entry('Test Away',2)],table_mode='source_snapshot',table_warning=None,head_to_head=[dict(id='meeting',kickoff_at=stamp,home='Test Home',away='Test Away',home_score=1,away_score=1)]),
              research_readiness=dict(reason='Partial data',next_action='Obtain independent review.',providers=[dict(source_id='s1',provider='Test source',issues=['partial sample'],sides={})]),
              metrics=dict(research_runs=5,fixtures_researched=2,evidence_items=7),sources=dict(authorized=1,recorded=1,online=None),
@@ -27,10 +36,14 @@ def main():
             if '/workspace/' in url:data=workspace(url.split('/workspace/')[1].split('?')[0])
             else:
                 endpoint=url.split('/catalog/')[1].split('?')[0]
-                data={'sports':[dict(id='sport',name='Football')],'countries':[dict(name='Germany')],'leagues':[dict(id='league',name='Test League')],'seasons':[dict(id='season',label='2026/2027',is_current=True)],'fixtures':[dict(id=i,home='Test Home' if i=='f1' else 'Other Home',away='Test Away',kickoff='2026-11-20T16:00:00Z',status='SCHEDULED') for i in ['f1','f2']]}[endpoint]
+                data={'sports':[dict(id='sport',name='Football')],'countries':[dict(name='Germany')],'leagues':[dict(id='league',name='Test League')],'seasons':[dict(id='season',label='2026/2027',is_current=True)],'fixtures':[dict(id=i,home='Test Home' if i=='f1' else 'Other Home',away='Test Away',kickoff=kicks[i],status=statuses[i]) for i in (['f2','f3'] if only_past[0] else ['f2','f3','f1'])]}[endpoint]
             route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
         page.route('**/research/catalog/**',respond);page.route('**/research/workspace/**',respond)
+        page.route('**/live/stream',lambda route:route.abort())
         page.goto(BASE+'/sports/research');page.locator('.dmr-match').wait_for()
+        assert page.get_by_label('Fixture',exact=True).input_value()=='f1'
+        assert 'COMPLETED UNVERIFIED' in page.locator('option[value="f2"]').inner_text()
+        assert 'WAT' in page.locator('option[value="f2"]').inner_text()
         assert page.locator('.dmr-tabs button').count()==8
         assert page.locator('.dmr-right .dmr-coverage').count()==8
         assert page.get_by_text('Official Results').count()>=1
@@ -49,7 +62,11 @@ def main():
             if tab!='Overview':assert page.locator('.dmr-evidence-list article').count()>=1
         page.get_by_label('Fixture',exact=True).select_option('f2')
         page.locator('.dmr-home h3',has_text='Other Home').wait_for()
+        assert page.get_by_text("This fixture's kickoff has passed.",exact=False).is_visible()
         assert page.locator('.dmr-error',has_text='PROVIDER_FAILED').is_visible()
+        assert page.get_by_text('0% verified',exact=True).is_visible()
+        assert page.get_by_text('0 verified · 2 provisional of 7 pre-match sections',exact=True).is_visible()
+        assert page.locator('.dmr-coverage-bar.provisional').count()==2
         page.goto(BASE+'/sports/research?fixture_id=f1')
         page.locator('.dmr-home h3',has_text='Test Home').wait_for()
         page.get_by_label('Fixture',exact=True).select_option('f2')
@@ -60,6 +77,11 @@ def main():
         assert page.locator('.dmr-match').is_visible()
         page.wait_for_timeout(800)
         assert page.evaluate('window.banner.isConnected')
+        second_verified[0]=True
+        page.get_by_text('14% verified',exact=True).wait_for(timeout=15000)
+        assert page.get_by_text('14% verified',exact=True).is_visible()
+        assert page.get_by_text('1 verified · 1 provisional of 7 pre-match sections',exact=True).is_visible()
+        assert page.locator('.dmr-coverage-bar.provisional').count()==1
         assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         for width in (1366,1280,1024):
             page.set_viewport_size({'width':width,'height':768})
@@ -73,8 +95,15 @@ def main():
         page.set_viewport_size({'width':390,'height':844});assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         assert page.locator('.dmr-kickoff').evaluate('(e)=>e.getBoundingClientRect().top>=document.querySelector(".dmr-home").getBoundingClientRect().bottom')
         page.screenshot(path=str(ROOT/'artifacts/deep-research-test-mobile.png'),full_page=True,animations='disabled')
+        only_past[0]=True
+        page.goto(BASE+'/sports/research')
+        page.get_by_text('No upcoming scheduled fixtures are currently recorded',exact=False).wait_for()
+        assert page.get_by_label('Fixture',exact=True).input_value()==''
+        page.get_by_label('Fixture',exact=True).select_option('f2')
+        page.locator('.dmr-home h3',has_text='Other Home').wait_for()
+        assert page.get_by_text("This fixture's kickoff has passed.",exact=False).is_visible()
         assert not errors,errors
         b.close()
-    print('PASS: eight tabs, fixture filters/deep links, evidence, stable refresh, desktop/mobile overflow, no browser errors.')
+    print('PASS: tabs, fixture filters/deep links, evidence, stable and automatic coverage refresh, responsive layout, no browser errors.')
 
 if __name__=='__main__':main()
