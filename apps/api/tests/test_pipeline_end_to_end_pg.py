@@ -91,7 +91,8 @@ def test_sportsdb_season_history_reaches_workspace_in_postgres(factory,monkeypat
  from app.modules.pipeline.operations import research,Waiting
  with factory.begin() as db:
   with pytest.raises(Waiting) as exc:research(db,SimpleNamespace(fixture_id=fixture_id),at+timedelta(seconds=5))
-  assert exc.value.code=='NO_CORROBORATED_EVIDENCE'
+  assert exc.value.code=='PROVISIONAL_RESEARCH_ONLY'
+  assert exc.value.state=='INSUFFICIENT_DATA'
   dossier=db.scalar(select(m.Research).where(m.Research.fixture_id==fixture_id))
   assert dossier.status=='PARTIAL' and dossier.sections['recent_form']['evidence_ids']==[evidence['id']]
  report=TestClient(app).get('/api/v1/sports/research/workspace/'+fixture_id).json()

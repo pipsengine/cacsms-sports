@@ -152,10 +152,13 @@ Enforcement (`app/modules/acquisition/source_policy.py`):
 The configured development fallback is OpenLigaDB and TheSportsDB, subject to their respective terms and coverage.
 These structured APIs supplement rather than implement or replace the missing autonomous browser workflow.
 
-## League-window corroboration (football-data.org, API-Football, paid TheSportsDB, consent-gated BetExplorer)
+## League-window corroboration (football-data.org, API-Football, paid TheSportsDB, optional BetExplorer)
 
 Any two enabled providers whose computations are identical verify a section; a disagreeing third provider is named
-in the readiness note and emits nothing. **football-data.org** registers when `SPORTS_FOOTBALL_DATA_ORG_KEY` is set
+in the readiness note and emits nothing. If only one provider has usable data, its sections are stored as
+`SINGLE_SOURCE` provisional evidence and the research stage ends with `INSUFFICIENT_DATA`; analysis and predictions
+still require a verified dossier. If a second provider later agrees, the evidence is promoted to cross-source
+corroboration. **football-data.org** registers when `SPORTS_FOOTBALL_DATA_ORG_KEY` is set
 (free tier: PL, ELC, PD, SA, FL1, DED, PPL, BSA; requests spaced 7 s). **TheSportsDB** takes part only with a paid
 `SPORTS_THESPORTSDB_KEY`; the public key truncates seasons and is never used, and the key never appears in stored URLs.
 Competition names with a season suffix (e.g. "Premier League 2026/2027") map to their league.
@@ -170,8 +173,10 @@ or an unresolved team name yields no evidence; the per-fixture outcome appears i
 
 - **API-Football** registers as AUTHORIZED when `SPORTS_APIFOOTBALL_KEY` is set (two requests per league, refreshed
   every 6 h for the current season and 7 d for the previous). Plan errors are recorded, never treated as empty data.
-- **BetExplorer** remains PROHIBITED and every request is refused until `SPORTS_SOURCE_CONSENT=betexplorer.com=<ref>`
-  is recorded. With consent it is authorized with an audit event carrying the reference, fetches only league
+- **BetExplorer** remains PROHIBITED and every request is refused unless `SPORTS_SOURCE_CONSENT=betexplorer.com=<ref>`
+  is recorded. Its absence is informational: permitted providers continue independently, with single-source
+  evidence kept provisional rather than blocked or treated as verified. With consent it is authorized with an
+  audit event carrying the reference, fetches only league
   `/results/` pages, checks robots.txt, spaces requests by 30 s and refreshes each page at most every 6 h. Removing
   the consent downgrades it to PROHIBITED on the next cycle. The HTML parser is tested against representative markup;
   validate it against the live page once consent exists.

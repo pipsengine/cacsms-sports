@@ -309,6 +309,9 @@ def research(db,run,at):
  summary=dossier_summary(dossier)
  if managed:summary['research_readiness']=readiness
  if not verified_refs:
+  if refs and any(section['status']=='PROVISIONAL' for section in sections.values()) and not any(section['status']=='CONFLICTED' for section in sections.values()):
+   raise Waiting('Provisional single-source research was saved; independent corroboration is required before analysis or predictions',
+                 [dossier.id],state='INSUFFICIENT_DATA',code='PROVISIONAL_RESEARCH_ONLY',details=summary)
   raise Waiting(readiness['reason'] if managed else 'Research requires independently reviewed evidence or agreement from two configured independent source groups',
                 [dossier.id],code='NO_CORROBORATED_EVIDENCE',details=summary)
  if summary['missing_data_report']:

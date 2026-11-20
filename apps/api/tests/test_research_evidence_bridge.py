@@ -33,8 +33,9 @@ def test_real_collector_histories_are_normalized_idempotently_without_promotion(
         for _ in range(2):
             with pytest.raises(Waiting) as exc:
                 research(db, SimpleNamespace(fixture_id=fixture_id), AT+timedelta(seconds=12))
-            assert exc.value.code == 'NO_CORROBORATED_EVIDENCE'
-            assert 'complete recent window' in str(exc.value)
+            assert exc.value.code == 'PROVISIONAL_RESEARCH_ONLY'
+            assert exc.value.state == 'INSUFFICIENT_DATA'
+            assert 'single-source research was saved' in str(exc.value)
         derived = [o for o in db.scalars(select(m.Observation)) if o.payload.get('producer') == bridge.PRODUCER]
         assert len(derived) == 2
         form = next(o for o in derived if o.payload['section'] == 'recent_form')

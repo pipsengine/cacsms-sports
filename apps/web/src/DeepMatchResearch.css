@@ -23,3 +23,28 @@
 .dmr-runtime-badge{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:25px;background:#fff2dd;color:#99630d;font-size:14px;font-weight:700;white-space:nowrap}.dmr-runtime-badge.online{background:#dcfbee;color:#007c37}.dmr-runtime-badge i{width:9px;height:9px;border-radius:50%;background:currentColor}
 @media(max-width:700px){.dmr-runtime-badge{font-size:10px;padding:7px 9px;gap:4px}.dmr-runtime-badge svg{width:17px}.deep-reference .breadcrumbs{max-width:105px}.deep-reference .topbar{gap:5px}.deep-reference .top-right{gap:7px}}
 @media(max-width:700px){.dmr-match>.dmr-kickoff{flex:0 0 100%;min-width:100%;max-width:none;order:3}.dmr-match>.dmr-home,.dmr-match>.dmr-away{flex:1 1 calc(50% - 10px);min-width:0}}
+.dmr-research .dmr-readiness{padding:10px 12px}
+.dmr-research .dmr-readiness summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;color:#0d173e}
+.dmr-research .dmr-readiness summary::-webkit-details-marker{display:none}
+.dmr-research .dmr-readiness summary:after{content:'+';margin-left:auto;color:#075cf4;font-size:18px}
+.dmr-research .dmr-readiness[open] summary:after{content:'−'}
+.dmr-research .dmr-readiness summary svg{color:#075cf4;flex-shrink:0}
+.dmr-research .dmr-readiness summary span{color:#597198;font-size:11px}
+.dmr-research .dmr-readiness p{font-size:12px;line-height:1.45;margin:8px 0 0}
+.dmr-research .dmr-readiness summary:focus-visible{outline:2px solid #0865ff;outline-offset:3px}
+.dmr-research .dmr-error svg{flex-shrink:0}
+@media(min-width:1101px) and (max-width:1450px){
+ .dmr-research .dmr-header{display:flex;min-height:0;gap:12px}
+ .dmr-research .dmr-intro{flex:1;min-width:0}
+ .dmr-research .dmr-header h2{font-size:26px}
+ .dmr-research .dmr-header p{font-size:11px}
+ .dmr-research .dmr-kpis{flex:2;min-width:0;margin-top:0;gap:7px}
+ .dmr-research .dmr-kpis>div{grid-template-columns:32px minmax(0,1fr);gap:3px 7px;min-height:70px;padding:8px}
+ .dmr-research .dmr-kpis svg{width:32px;height:32px;padding:6px}
+ .dmr-research .dmr-kpis span{white-space:normal;overflow-wrap:anywhere;font-size:10px}
+ .dmr-research .dmr-kpis b{font-size:19px}
+ .dmr-research .dmr-filters{grid-template-columns:80px repeat(2,minmax(0,1fr)) minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1.5fr);gap:8px}
+ .dmr-research .dmr-filters label:last-child{grid-column:auto}
+ .dmr-research .dmr-filters>strong{white-space:normal}
+}
+@media(max-width:700px){.dmr-research .dmr-readiness summary span{display:none}}

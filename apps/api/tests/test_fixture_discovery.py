@@ -436,7 +436,8 @@ def test_team_recent_is_single_source_partial_and_never_verifies_research(store,
         assert db.scalar(select(func.count()).select_from(m.Prediction))==0
         run=SimpleNamespace(fixture_id=fixture_id)
         with pytest.raises(Waiting) as exc: research(db,run,at+timedelta(seconds=5))
-        assert exc.value.code=='NO_CORROBORATED_EVIDENCE'
+        assert exc.value.code=='PROVISIONAL_RESEARCH_ONLY'
+        assert exc.value.state=='INSUFFICIENT_DATA'
         dossier=db.scalar(select(m.Research).where(m.Research.fixture_id==fixture_id))
         assert dossier.status=='PARTIAL' and dossier.sections['recent_form']['status']=='PROVISIONAL'
         assert dossier.sections['recent_form']['evidence_ids']==[observation.id]

@@ -18,7 +18,10 @@ def main():
         def workspace(ident):
             return dict(fixture=dict(id=ident,home='Test Home' if ident=='f1' else 'Other Home',away='Test Away',kickoff_at='2026-11-20T16:00:00Z',status='SCHEDULED',matchday=28,competition_id='league',competition='Test League',country='Germany',sport='Football',season_id='season',season='2026/2027'),cutoff=stamp,dossier_id='dossier',version=1,status='VERIFIED',last_research_at=stamp,
              sections=[dict(key=k,name=n,count=1,status='VERIFIED',details={}) for k,n in zip(keys,names)],evidence=[dict(id=k,section=k,observed_at=stamp,source_name='Test source',source_url='https://example.org/evidence',status='RECORDED_AUTHORIZED',data={'fact':k}) for k in keys],verified_sections=8,total_sections=8,sample_limit=500,
-             summary=dict(home=team('Test Home',1),away=team('Test Away',2),top_two=[entry('Test Home',1),entry('Test Away',2)],table_mode='source_snapshot',table_warning=None,head_to_head=[dict(id='meeting',kickoff_at=stamp,home='Test Home',away='Test Away',home_score=1,away_score=1)]),metrics=dict(research_runs=5,fixtures_researched=2,evidence_items=7),sources=dict(authorized=1,recorded=1,online=None),runtime=dict(status='OPERATING',worker_online=True,next_run_at=stamp,stages=dict(acquire='VERIFIED',research='VERIFIED',analyse='VERIFIED')),message='Test evidence context')
+             summary=dict(home=team('Test Home',1),away=team('Test Away',2),top_two=[entry('Test Home',1),entry('Test Away',2)],table_mode='source_snapshot',table_warning=None,head_to_head=[dict(id='meeting',kickoff_at=stamp,home='Test Home',away='Test Away',home_score=1,away_score=1)]),
+             research_readiness=dict(reason='Partial data',next_action='Obtain independent review.',providers=[dict(source_id='s1',provider='Test source',issues=['partial sample'],sides={})]),
+             metrics=dict(research_runs=5,fixtures_researched=2,evidence_items=7),sources=dict(authorized=1,recorded=1,online=None),
+             runtime=dict(status='OPERATING',worker_online=True,next_run_at=stamp,stages=dict(acquire='VERIFIED',research='INSUFFICIENT_DATA',analyse='PENDING'),stage_errors={'research':dict(code='PROVISIONAL_RESEARCH_ONLY' if ident=='f1' else 'PROVIDER_FAILED',reason='Provider failure')}),message='Test evidence context')
         def respond(route):
             url=route.request.url
             if '/workspace/' in url:data=workspace(url.split('/workspace/')[1].split('?')[0])
@@ -32,7 +35,13 @@ def main():
         assert page.locator('.dmr-right .dmr-coverage').count()==8
         assert page.get_by_text('Official Results').count()>=1
         page.locator('.dmr-kickoff b',has_text='Test League — Matchday 28').wait_for()
-        for label in ['Data Freshness','Next Scheduled Run','Last Research Run','Sources (Authorized)']:assert page.get_by_text(label,exact=True).count()==1,label
+        for label in ['Latest Capture','Next Controller Update','Dossier Created','Sources (Authorized)']:assert page.get_by_text(label,exact=True).count()==1,label
+        assert page.get_by_text('Provisional research saved.',exact=False).count()==1
+        readiness=page.locator('.dmr-readiness')
+        assert not readiness.evaluate('(e)=>e.open')
+        readiness.locator('summary').click()
+        assert readiness.get_by_text('Test source:',exact=False).is_visible()
+        readiness.locator('summary').click()
         assert page.locator('.sidebar .nav-link').count()==29
         assert page.locator('.dmr-filters button').count()==0
         for tab in ['H2H','Form','Injuries','Lineups','Statistics','Club News','Evidence','Overview']:
@@ -40,6 +49,7 @@ def main():
             if tab!='Overview':assert page.locator('.dmr-evidence-list article').count()>=1
         page.get_by_label('Fixture',exact=True).select_option('f2')
         page.locator('.dmr-home h3',has_text='Other Home').wait_for()
+        assert page.locator('.dmr-error',has_text='PROVIDER_FAILED').is_visible()
         page.goto(BASE+'/sports/research?fixture_id=f1')
         page.locator('.dmr-home h3',has_text='Test Home').wait_for()
         page.get_by_label('Fixture',exact=True).select_option('f2')
@@ -51,6 +61,14 @@ def main():
         page.wait_for_timeout(800)
         assert page.evaluate('window.banner.isConnected')
         assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
+        for width in (1366,1280,1024):
+            page.set_viewport_size({'width':width,'height':768})
+            assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),width
+            assert page.locator('.dmr-filters').evaluate('(e)=>e.getBoundingClientRect().bottom<window.innerHeight'),width
+            if width>=1101:
+                assert page.locator('.dmr-match').evaluate('(e)=>e.getBoundingClientRect().top<window.innerHeight'),width
+                assert page.locator('.dmr-kpis').evaluate('(e)=>e.scrollWidth<=e.clientWidth'),width
+        page.set_viewport_size({'width':1672,'height':941})
         (ROOT/'artifacts').mkdir(exist_ok=True);page.evaluate('window.scrollTo(0,0)');page.screenshot(path=str(ROOT/'artifacts/deep-research-test-desktop.png'),full_page=True,animations='disabled')
         page.set_viewport_size({'width':390,'height':844});assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         assert page.locator('.dmr-kickoff').evaluate('(e)=>e.getBoundingClientRect().top>=document.querySelector(".dmr-home").getBoundingClientRect().bottom')

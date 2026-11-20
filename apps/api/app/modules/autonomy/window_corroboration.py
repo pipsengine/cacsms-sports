@@ -609,7 +609,7 @@ def produce(factory, at):
     for fixture_id, home, away, kickoff, league in work:
         outcome, detail, per, problems = None, None, {}, []
         usable = [(sid, name) for sid, name in providers if league.get(name)]
-        if len(usable) < 2:
+        if not usable:
             outcome = 'SECOND_PROVIDER_REQUIRED'
         else:
             with factory() as db:
@@ -621,15 +621,33 @@ def produce(factory, at):
                 ph, pa = resolve(home, current, name), resolve(away, current, name)
                 if not ph or not pa or ph == pa: problems.append(('TEAM_UNMAPPED', name)); continue
                 per[sid] = (name, rows, ph, pa, urls)
-            if len(per) < 2: outcome, detail = problems[0] if problems else ('SECOND_PROVIDER_REQUIRED', None)
-        if outcome is None:
-            horizon = max(r['date'] for _, rows, *_ in per.values() for r in rows) if all(v[1] for v in per.values()) else None
+            horizon = max(r['date'] for _, rows, *_ in per.values() for r in rows) if per and all(v[1] for v in per.values()) else None
             built = {sid: sections_for(rows, ph, pa, horizon, home, away) for sid, (_, rows, ph, pa, _) in per.items()} if horizon else {}
             built = {sid: v for sid, v in built.items() if v}
             camps = {}
             for sid, sections in built.items(): camps.setdefault(json.dumps(sections, sort_keys=True), []).append(sid)
             agree = max(camps.values(), key=len) if camps else []
-            if not horizon or horizon >= utc(kickoff).date().isoformat() or len(built) < 2:
+            if not per:
+                outcome, detail = problems[0] if problems else ('SECOND_PROVIDER_REQUIRED', None)
+            elif not horizon or horizon >= utc(kickoff).date().isoformat():
+                outcome = 'INSUFFICIENT_HISTORY'
+            elif len(built) == 1:
+                outcome = 'PROVISIONAL_SINGLE_SOURCE'
+                with factory.begin() as db:
+                    stamp = min(at, utc(kickoff) - timedelta(minutes=1))
+                    sid = next(iter(built))
+                    name, _, ph, pa, urls = per[sid]
+                    for section, data in built[sid].items():
+                        digest = _hash(sid, fixture_id, section, data)
+                        if db.scalar(select(m.Observation.id).where(m.Observation.source_id == sid, m.Observation.content_hash == digest)): continue
+                        db.add(m.Observation(source_id=sid, fixture_id=fixture_id, observed_at=stamp, source_url=urls[0], content_hash=digest,
+                                             payload={'section': section, 'data': data, 'verification': 'SINGLE_SOURCE',
+                                                      'independence_group': GROUPS[sid], 'producer': PRODUCER,
+                                                      'source_reference': f'{GROUPS[sid]}:{section}:{horizon}',
+                                                      'team_resolution': {home: ph, away: pa}, 'source_urls': urls}))
+                        report['observations'] += 1
+                report['fixtures'] += 1
+            elif len(built) < 2:
                 outcome = 'INSUFFICIENT_HISTORY'
             elif len(agree) < 2:
                 differing = sorted(s for s in SECTIONS if len({json.dumps(v[s], sort_keys=True) for v in built.values()}) > 1)
@@ -645,7 +663,11 @@ def produce(factory, at):
                         name, _, ph, pa, urls = per[sid]
                         for section, data in built[sid].items():
                             digest = _hash(sid, fixture_id, section, data)
-                            if db.scalar(select(m.Observation.id).where(m.Observation.source_id == sid, m.Observation.content_hash == digest)): continue
+                            existing = db.scalar(select(m.Observation).where(m.Observation.source_id == sid, m.Observation.content_hash == digest))
+                            if existing:
+                                if existing.payload.get('verification') == 'SINGLE_SOURCE':
+                                    existing.payload = {**existing.payload, 'verification': 'CROSS_SOURCE_QUORUM'}
+                                continue
                             db.add(m.Observation(source_id=sid, fixture_id=fixture_id, observed_at=stamp, source_url=urls[0], content_hash=digest,
                                                  payload={'section': section, 'data': data, 'verification': 'CROSS_SOURCE_QUORUM',
                                                           'independence_group': GROUPS[sid], 'producer': PRODUCER,
@@ -754,7 +776,7 @@ def readiness_note(db, fixture):
     missing = {'footballdata': 'not configured (set SPORTS_FOOTBALL_DATA_ORG_KEY; free key)',
                'apifootball': 'not configured (set SPORTS_APIFOOTBALL_KEY)',
                'thesportsdb': 'needs a paid SPORTS_THESPORTSDB_KEY (the public key truncates seasons)',
-               'betexplorer': "blocked until the operator's written consent is recorded in SPORTS_SOURCE_CONSENT"}
+               'betexplorer': 'not used without recorded operator consent'}
     parts = [LABELS[name] + ': ' + ('enabled' if provider_enabled(db, name) else missing[name]) for name in IDS if league.get(name)]
     state = db.get(m.ProviderSyncState, 'wc:fixture:' + fixture.id)
     if state and (state.payload or {}).get('status'):

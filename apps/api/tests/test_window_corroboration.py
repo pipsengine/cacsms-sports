@@ -115,10 +115,79 @@ def test_betexplorer_stays_prohibited_without_written_consent(store, monkeypatch
     assert all(call[0] == 'apifootball' for call in calls)
     with store() as db:
         assert db.get(m.Source, wc.BE_ID).permission == 'PROHIBITED'
-        assert 'blocked until' in wc.readiness_note(db, db.get(m.Fixture, 'fx-cercle'))
-    assert report['evidence']['outcomes'] == {'SECOND_PROVIDER_REQUIRED': 1}
+        note = wc.readiness_note(db, db.get(m.Fixture, 'fx-cercle'))
+        assert 'not used without recorded operator consent' in note
+        evidence = db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-cercle')).all()
+        assert evidence and all(row.payload['verification'] == 'SINGLE_SOURCE' for row in evidence)
+        with pytest.raises(operations.Waiting) as exc:
+            research(db, SimpleNamespace(fixture_id='fx-cercle'), AT + timedelta(minutes=1))
+        assert exc.value.state == 'INSUFFICIENT_DATA'
+        assert exc.value.code == 'PROVISIONAL_RESEARCH_ONLY'
+        assert 'before analysis or predictions' in str(exc.value)
+        assert db.scalar(select(m.Research).where(m.Research.fixture_id == 'fx-cercle')).status == 'PARTIAL'
+        assert not db.scalars(select(m.Feature)).all()
+    assert report['evidence']['outcomes'] == {'PROVISIONAL_SINGLE_SOURCE': 1}
     with pytest.raises(PermissionError):
         source_policy.assert_permitted(wc.betexplorer_url('football/belgium/jupiler-pro-league', 2026, False, True))
+
+
+def test_missing_provider_data_does_not_abort_corroboration_cycle(store, monkeypatch):
+    monkeypatch.delenv('SPORTS_SOURCE_CONSENT')
+    with store.begin() as db: source_policy.register_prohibited_sources(db)
+    def unavailable(league, season):
+        raise wc.ProviderError('HTTP_503')
+    report = wc.collect(store, at=AT, fetchers={'apifootball': unavailable})
+    assert report['errors'][0]['code'] == 'HTTP_503'
+    assert report['evidence']['outcomes'] == {'DATA_NOT_COLLECTED': 1}
+    assert report['results']['status'] == 'SECOND_PROVIDER_REQUIRED'
+    with store() as db:
+        state = db.get(m.ProviderSyncState, 'wc:fixture:fx-cercle')
+        assert state.payload['status'] == 'DATA_NOT_COLLECTED'
+        assert not db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-cercle')).all()
+
+
+def test_unmapped_teams_do_not_abort_corroboration_cycle(store, monkeypatch):
+    monkeypatch.delenv('SPORTS_SOURCE_CONSENT')
+    with store.begin() as db: source_policy.register_prohibited_sources(db)
+    fx, _ = fetchers()
+    fx['apifootball'] = lambda league, season: apif_payload([], season)
+    report = wc.collect(store, at=AT, fetchers=fx)
+    assert report['evidence']['outcomes'] == {'TEAM_UNMAPPED': 1}
+    assert not report['errors']
+
+
+def test_unmapped_fixture_does_not_prevent_other_fixtures_being_processed(store, monkeypatch):
+    monkeypatch.delenv('SPORTS_SOURCE_CONSENT')
+    with store.begin() as db:
+        source_policy.register_prohibited_sources(db)
+        first = db.get(m.Fixture, 'fx-cercle')
+        first.home_name = 'Unmapped Team'
+        db.add(m.Fixture(id='fx-valid', competition_id=first.competition_id, home_name='Cercle Brugge',
+                         away_name='Westerlo', kickoff_at=KICKOFF, status='SCHEDULED'))
+    report = wc.collect(store, at=AT, fetchers=fetchers()[0])
+    assert report['evidence']['outcomes'] == {'TEAM_UNMAPPED': 1, 'PROVISIONAL_SINGLE_SOURCE': 1}
+    with store() as db:
+        assert db.get(m.ProviderSyncState, 'wc:fixture:fx-cercle').payload['status'] == 'TEAM_UNMAPPED'
+        assert len(db.scalars(select(m.Observation).where(m.Observation.fixture_id == 'fx-valid')).all()) == 3
+
+
+def test_single_source_evidence_is_promoted_after_consent_allows_a_second_provider(store, monkeypatch):
+    monkeypatch.delenv('SPORTS_SOURCE_CONSENT')
+    with store.begin() as db: source_policy.register_prohibited_sources(db)
+    fx, _ = fetchers()
+    first = wc.collect(store, at=AT, fetchers=fx)
+    assert first['evidence']['outcomes'] == {'PROVISIONAL_SINGLE_SOURCE': 1}
+
+    monkeypatch.setenv('SPORTS_SOURCE_CONSENT', 'betexplorer.com=TEST-LICENCE-001')
+    partial = wc.collect(store, at=AT + timedelta(minutes=1), fetchers=fx)
+    assert partial['evidence']['outcomes'] == {'PROVIDERS_DISAGREE': 1}
+    second = wc.collect(store, at=AT + timedelta(minutes=2), fetchers=fx)
+    assert second['evidence']['outcomes'] == {'CORROBORATED': 1}
+    with store() as db:
+        api_observations = db.scalars(select(m.Observation).where(
+            m.Observation.fixture_id == 'fx-cercle', m.Observation.source_id == wc.APIF_ID)).all()
+        assert {row.payload['section'] for row in api_observations
+                if row.payload['verification'] == 'CROSS_SOURCE_QUORUM'} == set(wc.SECTIONS)
 
 
 def test_agreeing_complete_windows_verify_research_sections(store, monkeypatch):
